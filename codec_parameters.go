@@ -3,6 +3,7 @@ package astiav
 //#cgo pkg-config: libavcodec
 //#include <libavcodec/avcodec.h>
 import "C"
+import "unsafe"
 
 // https://github.com/FFmpeg/FFmpeg/blob/n5.0/libavcodec/codec_par.h#L52
 type CodecParameters struct {
@@ -150,6 +151,23 @@ func (cp *CodecParameters) Width() int {
 
 func (cp *CodecParameters) SetWidth(w int) {
 	cp.c.width = C.int(w)
+}
+
+func (cp *CodecParameters) Extradata() []byte {
+	return C.GoBytes(unsafe.Pointer(cp.c.extradata), C.int(cp.c.extradata_size))
+}
+
+func (cp *CodecParameters) SetExtradata(d []byte) {
+	cp.c.extradata = (*C.uint8_t)(unsafe.Pointer(&d[0]))
+	cp.c.extradata_size = C.int(len(d))
+}
+
+func (cp *CodecParameters) ExtradataSize() int {
+	return int(cp.c.extradata_size)
+}
+
+func (cp *CodecParameters) SetExtradataSize(s int) {
+	cp.c.extradata_size = C.int(s)
 }
 
 func (cp *CodecParameters) FromCodecContext(cc *CodecContext) error {

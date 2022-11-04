@@ -7,11 +7,17 @@ import (
 )
 
 func TestFlag(t *testing.T) {
-	f := flags(2 | 4)
-	r := f.add(1)
-	require.Equal(t, 7, r)
-	r = f.del(2)
-	require.Equal(t, 4, r)
-	require.False(t, f.has(1))
-	require.True(t, f.has(4))
+	f1 := flags(2 | 4 | 16)
+	require.Equal(t, flags(0b10110), f1)
+	f2 := flags(f1.add(1))
+	require.Equal(t, flags(0b10111), f2)
+	f3 := flags(f2.del(2))
+	require.Equal(t, flags(0b10101), f3)
+
+	require.True(t, f3.has(1))
+	require.False(t, f3.has(2))
+	require.True(t, f3.has(4))
+	require.False(t, f3.has(8))
+	require.True(t, f3.has(16))
+	require.False(t, f3.has(32))
 }

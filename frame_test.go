@@ -133,7 +133,8 @@ func TestFrame(t *testing.T) {
 	require.Equal(t, string(b), fmt.Sprintf("%+v", f1.Data()))
 	require.Equal(t, [8]int{384, 192, 192, 0, 0, 0, 0, 0}, f1.Linesize())
 	require.Equal(t, int64(60928), f1.PktDts())
-	require.Equal(t, int64(60928), f1.PktPts())
+	// TODO: Removed PktPts bc it's deprecated. Does this work?
+	require.Equal(t, int64(60928), f1.Pts())
 
 	f2 := astiav.AllocFrame()
 	require.NotNil(t, f2)
@@ -212,5 +213,7 @@ func TestFrame(t *testing.T) {
 	f6.SetPixelFormat(astiav.PixelFormatYuv420P)
 	f6.SetWidth(4)
 	require.NoError(t, f6.AllocBuffer(0))
-	require.NoError(t, f6.AllocImage(0))
+	n, err := f6.AllocImage(0)
+	require.NoError(t, err)
+	require.Equal(t, 0, n)
 }

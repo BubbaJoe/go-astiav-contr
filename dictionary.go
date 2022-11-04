@@ -33,6 +33,10 @@ func (d *Dictionary) Set(key, value string, flags DictionaryFlags) error {
 	return newError(C.av_dict_set(&d.c, ck, cv, C.int(flags)))
 }
 
+func (d *Dictionary) Len() int {
+	return int(C.av_dict_count(d.c))
+}
+
 func (d *Dictionary) ParseString(i, keyValSep, pairsSep string, flags DictionaryFlags) error {
 	ci := C.CString(i)
 	defer C.free(unsafe.Pointer(ci))

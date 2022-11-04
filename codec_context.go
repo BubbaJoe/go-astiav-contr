@@ -1,9 +1,11 @@
 package astiav
 
-//#cgo pkg-config: libavcodec libavutil
+//#cgo pkg-config: libavcodec libavutil libavformat
 //#include <libavcodec/avcodec.h>
 //#include <libavutil/frame.h>
+//#include <libavutil/imgutils.h>
 import "C"
+import "unsafe"
 
 // https://github.com/FFmpeg/FFmpeg/blob/n5.0/libavcodec/avcodec.h#L383
 type CodecContext struct {
@@ -67,6 +69,10 @@ func (cc *CodecContext) ChromaLocation() ChromaLocation {
 
 func (cc *CodecContext) CodecID() CodecID {
 	return CodecID(cc.c.codec_id)
+}
+
+func (cc *CodecContext) SetCodecID(c CodecID) {
+	cc.c.codec_id = C.enum_AVCodecID(c)
 }
 
 func (cc *CodecContext) ColorPrimaries() ColorPrimaries {
@@ -135,6 +141,14 @@ func (cc *CodecContext) Level() Level {
 
 func (cc *CodecContext) MediaType() MediaType {
 	return MediaType(cc.c.codec_type)
+}
+
+func (cc *CodecContext) CodecTag() uint {
+	return uint(cc.c.codec_tag)
+}
+
+func (cc *CodecContext) SetCodecTag(t uint) {
+	cc.c.codec_tag = C.uint(t)
 }
 
 func (cc *CodecContext) PixelFormat() PixelFormat {
@@ -213,6 +227,23 @@ func (cc *CodecContext) SetWidth(width int) {
 	cc.c.width = C.int(width)
 }
 
+func (cc *CodecContext) Extradata() []byte {
+	return C.GoBytes(unsafe.Pointer(cc.c.extradata), C.int(cc.c.extradata_size))
+}
+
+func (cc *CodecContext) SetExtradata(data []byte) {
+	cc.c.extradata = (*C.uint8_t)(unsafe.Pointer(&data[0]))
+	cc.c.extradata_size = C.int(len(data))
+}
+
+func (cc *CodecContext) ExtradataSize() int {
+	return int(cc.c.extradata_size)
+}
+
+func (cc *CodecContext) SetExtradataSize(size int) {
+	cc.c.extradata_size = C.int(size)
+}
+
 func (cc *CodecContext) Open(c *Codec, d *Dictionary) error {
 	var dc **C.struct_AVDictionary
 	if d != nil {
@@ -251,4 +282,14 @@ func (cc *CodecContext) SendFrame(f *Frame) error {
 		fc = f.c
 	}
 	return newError(C.avcodec_send_frame(cc.c, fc))
+}
+
+func (cc *CodecContext) GetBufferSize(width, height, align int) (int, error) {
+	ret := C.av_image_get_buffer_size(
+		C.enum_AVPixelFormat(cc.PixelFormat()),
+		C.int(width), C.int(height), C.int(align))
+	if ret < 0 {
+		return 0, newError(ret)
+	}
+	return int(ret), nil
 }

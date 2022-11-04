@@ -6,6 +6,10 @@ package astiav
 //#include <libavutil/imgutils.h>
 //#include <libavutil/samplefmt.h>
 import "C"
+import (
+	"reflect"
+	"unsafe"
+)
 
 const NumDataPointers = uint(C.AV_NUM_DATA_POINTERS)
 
@@ -29,8 +33,16 @@ func (f *Frame) AllocBuffer(align int) error {
 	return newError(C.av_frame_get_buffer(f.c, C.int(align)))
 }
 
-func (f *Frame) AllocImage(align int) error {
-	return newError(C.av_image_alloc(&f.c.data[0], &f.c.linesize[0], f.c.width, f.c.height, (C.enum_AVPixelFormat)(f.c.format), C.int(align)))
+func (f *Frame) AllocImage(align int) (int, error) {
+	n := C.av_image_alloc(
+		&f.c.data[0], &f.c.linesize[0],
+		f.c.width, f.c.height,
+		(C.enum_AVPixelFormat)(f.c.format),
+		C.int(align))
+	if n < 0 {
+		return 0, newError(n)
+	}
+	return int(n), nil
 }
 
 func (f *Frame) AllocSamples(align int) error {
@@ -48,7 +60,7 @@ func (f *Frame) SetChannelLayout(l ChannelLayout) {
 func (f *Frame) Data() [NumDataPointers][]byte {
 	b := [NumDataPointers][]byte{}
 	for i := 0; i < int(NumDataPointers); i++ {
-		b[i] = bytesFromC(func(size *C.int) *C.uint8_t {
+		d := bytesFromC(func(size *C.int) *C.uint8_t {
 			*size = f.c.linesize[i]
 			if f.c.height > 0 {
 				*size = *size * f.c.height
@@ -57,8 +69,56 @@ func (f *Frame) Data() [NumDataPointers][]byte {
 			}
 			return f.c.data[i]
 		})
+		b[i] = d
 	}
 	return b
+}
+
+func (f *Frame) SetData(d [NumDataPointers][]byte) {
+	for i := 0; i < int(NumDataPointers); i++ {
+		f.c.data[i] = (*C.uint8_t)(unsafe.Pointer(&d[i][0]))
+	}
+}
+
+func (f *Frame) DataPtr() [NumDataPointers]*byte {
+	b := [NumDataPointers]*byte{}
+	fData := f.Data()
+	for i := 0; i < int(NumDataPointers); i++ {
+		b[i] = &fData[i][0]
+	}
+	return b
+}
+
+func (f *Frame) DataFull() []byte {
+	var fullSize int
+	for i := 0; i < int(NumDataPointers); i++ {
+		size := int(f.c.linesize[i])
+		if f.c.height > 0 {
+			size *= int(f.c.height)
+		} else if f.c.channels > 0 {
+			size *= int(f.c.channels)
+		}
+		fullSize += size
+	}
+	return *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+		Data: uintptr(unsafe.Pointer(&f.c.data[0])),
+		Len:  int(fullSize),
+		Cap:  int(fullSize),
+	}))
+}
+
+func (f *Frame) Linesize() [NumDataPointers]int {
+	lsize := [NumDataPointers]int{}
+	for i := 0; i < int(NumDataPointers); i++ {
+		lsize[i] = int(f.c.linesize[i])
+	}
+	return lsize
+}
+
+func (f *Frame) SetLinesize(l [NumDataPointers]int) {
+	for i := 0; i < int(NumDataPointers); i++ {
+		f.c.linesize[i] = C.int(l[i])
+	}
 }
 
 func (f *Frame) Height() int {
@@ -79,14 +139,6 @@ func (f *Frame) SetKeyFrame(k bool) {
 		i = 1
 	}
 	f.c.key_frame = C.int(i)
-}
-
-func (f *Frame) Linesize() [NumDataPointers]int {
-	o := [NumDataPointers]int{}
-	for i := 0; i < int(NumDataPointers); i++ {
-		o[i] = int(f.c.linesize[i])
-	}
-	return o
 }
 
 func (f *Frame) NbSamples() int {
@@ -113,16 +165,16 @@ func (f *Frame) SetPixelFormat(pf PixelFormat) {
 	f.c.format = C.int(pf)
 }
 
-func (f *Frame) PktPts() int64 {
-	return int64(f.c.pkt_pts)
-}
-
 func (f *Frame) PktDts() int64 {
 	return int64(f.c.pkt_dts)
 }
 
 func (f *Frame) Pts() int64 {
 	return int64(f.c.pts)
+}
+
+func (f *Frame) SetPktDts(i int64) {
+	f.c.pkt_dts = C.int64_t(i)
 }
 
 func (f *Frame) SetPts(i int64) {
