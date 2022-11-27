@@ -6,7 +6,6 @@ package astiav
 */
 import "C"
 import (
-	"fmt"
 	"unsafe"
 )
 
@@ -42,12 +41,18 @@ func NewSwsContext(
 	srcW, srcH int, srcPixFmt PixelFormat,
 	dstW, dstH int, dstPixFmt PixelFormat,
 	flags int, srcFilter, dstFilter *SwsFilter,
-	param []float64,
+	params ...float64,
 ) *SwsContext {
 	// float64 array to *C.double
-	var cParam *C.double
-	if param != nil && len(param) > 0 {
-		cParam = (*C.double)(unsafe.Pointer(&param[0]))
+	var cparams *C.double = nil
+	if params != nil && len(params) > 0 {
+		floatSize := 8
+		cparams := C.malloc(C.size_t(len(params) * floatSize))
+		for i, p := range params {
+			curPtr := offsetPtr(cparams, i*floatSize)
+			*(*float64)(curPtr) = p
+			// *(*C.double)(curPtr) = C.double(p)
+		}
 	}
 	var cSrcFilter, cDstFilter *C.struct_SwsFilter
 	if srcFilter != nil {
@@ -66,7 +71,7 @@ func NewSwsContext(
 		C.int(flags),
 		cSrcFilter,
 		cDstFilter,
-		cParam,
+		cparams,
 	)
 
 	if sws == nil {
@@ -224,8 +229,7 @@ func (ctx *SwsContext) ScaleFrames(src *Frame, dst *Frame) error {
 		ctx.c,
 		(**C.uint8_t)(unsafe.Pointer(&src.c.data)),
 		(*C.int)(unsafe.Pointer(&src.c.linesize)),
-		0,
-		C.int(src.Height()),
+		0, src.c.height,
 		(**C.uint8_t)(unsafe.Pointer(&dst.c.data)),
 		(*C.int)(unsafe.Pointer(&dst.c.linesize))))
 }
@@ -242,45 +246,14 @@ func (ctx *SwsContext) Scale(
 		C.int(srcSliceY),
 		C.int(srcSliceH),
 		(**C.uint8_t)(unsafe.Pointer(&dstSlice[0])),
-		(*C.int)(unsafe.Pointer(&dstStride[0]))))
+		(*C.int)(unsafe.Pointer(&dstStride[0]))),
+	)
 }
 
 func (ctx *SwsContext) ScaleDstFrame(
 	srcSlice []byte, srcStride []int,
-	srcSliceY, srcSliceH int,
-	dstFrame *Frame,
+	srcSliceY, srcSliceH int, dstFrame *Frame,
 ) error {
-	srcDesc := GetPixelFormatDescription(dstFrame.PixelFormat())
-	// dstDesc := GetPixelFormatDescription(PixelFormatYuv420P)
-
-	fmt.Printf("src slice:%d\nsrc stride:%d\ndst slice:%d\ndst stride:%d\n",
-		len(srcSlice), len(srcStride), len(dstFrame.c.data), len(dstFrame.c.linesize))
-
-	// Desc Comp Planes
-	for i := 0; i < len(srcDesc.Comp()); i++ {
-		plane := srcDesc.Comp()[i].Plane()
-		fmt.Printf("src slice:%d/", srcSlice[plane])
-		fmt.Printf("stride:%d->", srcStride[plane])
-		fmt.Printf("plane:%d\n", plane)
-	}
-	// d := dstFrame.DataFull()
-	// for i := 0; i < len(dstDesc.Comp()); i++ {
-	// 	plane := dstDesc.Comp()[i].Plane()
-	// 	if d[plane] == 0 {
-	// 		d[plane] = 1
-	// 	}
-	// 	ls := dstFrame.Linesize()
-	// 	if ls[plane] == 0 {
-	// 		ls[plane] = 1
-	// 	}
-	// 	dstFrame.SetLinesize(ls)
-	// 	fmt.Printf("dst slice:%d/", d[plane])
-	// 	fmt.Printf("stride:%d->", dstFrame.Linesize()[plane])
-	// 	fmt.Printf("plane:%d\n", plane)
-	// }
-
-	// fmtPrintf("Compare bytes: %d\n", bytes.Compare(dstFrame.DataFull(), dstFrame.c.data))
-
 	return newError(C.sws_scale(
 		ctx.c, (**C.uint8_t)(unsafe.Pointer(&srcSlice[0])),
 		(*C.int)(unsafe.Pointer(&srcStride[0])),
@@ -290,125 +263,19 @@ func (ctx *SwsContext) ScaleDstFrame(
 	))
 }
 
-func (ctx *SwsContext) ScaleMatToFrame(
-	srcSlice []byte, srcStride []int,
-	srcSliceY, srcSliceH int,
-	dstFrame *Frame,
+func (ctx *SwsContext) ScaleSrcFrame(
+	srcFrame *Frame, dstSlice []byte, dstStride []int,
 ) error {
-	desc := GetPixelFormatDescription(dstFrame.PixelFormat())
-
-	fmt.Printf("src slice:%d\nsrc stride:%d\ndst slice:%d\ndst stride:%d\n",
-		len(srcSlice), len(srcStride), len(dstFrame.c.data), len(dstFrame.c.linesize))
-
-	// Desc Comp Planes
-	for i := 0; i < 2; i++ {
-		plane := desc.Comp()[i].Plane()
-		fmt.Printf("slice:%d ", srcSlice[plane])
-		fmt.Printf("stride:%d\n", srcStride[plane])
-	}
-
 	return newError(C.sws_scale(
-		ctx.c, (**C.uint8_t)(unsafe.Pointer(&srcSlice[0])),
-		(*C.int)(unsafe.Pointer(&srcStride[0])),
-		C.int(srcSliceY), C.int(srcSliceH),
-		(**C.uint8_t)(unsafe.Pointer(&dstFrame.c.data[0])),
-		(*C.int)(unsafe.Pointer(&dstFrame.c.linesize[0])),
-	))
+		ctx.c,
+		(**C.uint8_t)(unsafe.Pointer(&srcFrame.c.data)),
+		(*C.int)(unsafe.Pointer(&srcFrame.c.linesize)),
+		0, srcFrame.c.height,
+		(**C.uint8_t)(unsafe.Pointer(&dstSlice[0])),
+		(*C.int)(unsafe.Pointer(&dstStride[0]))),
+	)
 }
 
 func (ctx *SwsContext) Free() {
 	C.sws_freeContext(ctx.c)
-}
-
-func DefaultRescaler(ctx *SwsContext, frames []*Frame) ([]*Frame, error) {
-	var (
-		result []*Frame = make([]*Frame, 0)
-		tmp    *Frame
-		err    error
-	)
-
-	for i, _ := range frames {
-		tmp = AllocFrame()
-		tmp.SetWidth(ctx.Width())
-		tmp.SetHeight(ctx.Height())
-		tmp.SetPixelFormat(ctx.PixelFormat())
-		if _, err = tmp.AllocImage(32); err != nil {
-			return nil, err
-		}
-
-		ctx.ScaleFrames(frames[i], tmp)
-
-		tmp.SetPts(frames[i].Pts())
-		tmp.SetPts(frames[i].PktDts())
-
-		result = append(result, tmp)
-	}
-
-	for i := 0; i < len(frames); i++ {
-		if frames[i] != nil {
-			frames[i].Free()
-		}
-	}
-
-	return result, nil
-}
-
-type SwsVector struct {
-	c *C.struct_SwsVector
-}
-
-func NewSwsVector(size int) *SwsVector {
-	return &SwsVector{
-		c: C.sws_allocVec(C.int(size)),
-	}
-}
-
-func (v *SwsVector) Free() {
-	C.sws_freeVec(v.c)
-}
-
-func NewGaussianVector(variance, quality float64) *SwsVector {
-	return &SwsVector{
-		c: C.sws_getGaussianVec(C.double(variance), C.double(quality)),
-	}
-}
-
-func (v *SwsVector) Scale(scalar float64) {
-	C.sws_scaleVec(v.c, C.double(scalar))
-}
-
-func (v *SwsVector) Normalize(height float64) {
-	C.sws_normalizeVec(v.c, C.double(height))
-}
-
-func (v *SwsVector) Coefficients() []float64 {
-	result := make([]float64, int(v.c.length))
-	for _, d := range unsafe.Slice(v.c.coeff, v.c.length) {
-		result = append(result, float64(d))
-	}
-	return result
-}
-
-type SwsFilter struct {
-	c *C.struct_SwsFilter
-}
-
-func SwsDefaultFilter(lumaGBlur, chromaGBlur, lumaSharpen, chromaSharpen, chromaHShift, chromaVShift float64, verbose int) *SwsFilter {
-	return &SwsFilter{
-		c: C.sws_getDefaultFilter(
-			C.float(lumaGBlur),
-			C.float(chromaGBlur),
-			C.float(lumaSharpen),
-			C.float(chromaSharpen),
-			C.float(chromaHShift),
-			C.float(chromaVShift),
-			C.int(verbose),
-		),
-	}
-}
-
-func (f *SwsFilter) Free() {
-	if f.c != nil {
-		C.sws_freeFilter(f.c)
-	}
 }

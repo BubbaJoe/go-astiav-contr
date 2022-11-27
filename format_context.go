@@ -167,8 +167,11 @@ func (fc *FormatContext) SetStrictStdCompliance(strictStdCompliance StrictStdCom
 }
 
 func (fc *FormatContext) OpenInput(url string, fmt *InputFormat, d *Dictionary) error {
-	urlc := C.CString(url)
-	defer C.free(unsafe.Pointer(urlc))
+	var urlc *C.char
+	if len(url) > 0 {
+		urlc = C.CString(url)
+		defer C.free(unsafe.Pointer(urlc))
+	}
 	var dc **C.struct_AVDictionary
 	if d != nil {
 		dc = &d.c

@@ -27,12 +27,6 @@ func bytesFromC(fn func(size *C.int) *C.uint8_t) []byte {
 	return C.GoBytes(unsafe.Pointer(r), C.int(size))
 }
 
-func bytesFromC_ul(fn func(size *C.ulong) *C.uint8_t) []byte {
-	var size uint64
-	r := fn((*C.ulong)(unsafe.Pointer(&size)))
-	return C.GoBytes(unsafe.Pointer(r), C.int(int(size)))
-}
-
 func bytesPtrFromC(fn func(size *C.int) *C.uint8_t) []byte {
 	var size int
 	r := fn((*C.int)(unsafe.Pointer(&size)))
@@ -49,12 +43,6 @@ func bytesToC(b []byte, fn func(b *C.uint8_t, size C.int) error) error {
 	return fn(ptr, C.int(len(b)))
 }
 
-func bytesToC_ul(b []byte, fn func(b *C.uint8_t, size C.ulong) error) error {
-	var ptr *C.uint8_t
-	if b != nil {
-		c := make([]byte, len(b))
-		copy(c, b)
-		ptr = (*C.uint8_t)(unsafe.Pointer(&c[0]))
-	}
-	return fn(ptr, C.ulong(int64(len(b))))
+func offsetPtr(ptr unsafe.Pointer, i int) unsafe.Pointer {
+	return unsafe.Pointer(uintptr(ptr) + uintptr(i))
 }

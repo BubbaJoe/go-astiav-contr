@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 
@@ -21,10 +22,10 @@ var (
 	c                   = astikit.NewCloser()
 	inputFormatContext  *astiav.FormatContext
 	outputFormatContext *astiav.FormatContext
-	streams             = make(map[int]*stream) // Indexed by input stream index
+	streams             = make(map[int]*LocalStream) // Indexed by input stream index
 )
 
-type stream struct {
+type LocalStream struct {
 	buffersinkContext *astiav.FilterContext
 	buffersrcContext  *astiav.FilterContext
 	decCodec          *astiav.Codec
@@ -58,6 +59,7 @@ func main() {
 	// We use an astikit.Closer to free all resources properly
 	defer c.Close()
 
+	j := 0
 	// Open input file
 	if err := openInputFile(); err != nil {
 		log.Fatal(fmt.Errorf("main: opening input file failed: %w", err))
@@ -100,7 +102,7 @@ func main() {
 		if err := s.decCodecContext.SendPacket(pkt); err != nil {
 			log.Fatal(fmt.Errorf("main: sending packet failed: %w", err))
 		}
-
+		i := 0
 		// Loop
 		for {
 			// Receive frame
@@ -109,32 +111,42 @@ func main() {
 					break
 				}
 				log.Fatal(fmt.Errorf("main: receiving frame failed: %w", err))
+				continue
 			}
 
-			// Filter, encode and write frame
-			if err := filterEncodeWriteFrame(s.decFrame, s); err != nil {
-				log.Fatal(fmt.Errorf("main: filtering, encoding and writing frame failed: %w", err))
+			if s.decFrame.PictureType() == astiav.PictureTypeB {
+				continue
 			}
+			if s.decCodecContext.PixelFormat().String() != "" {
+				fmt.Println("------", saveFrameAsJpeg(s.decFrame.PixelFormat(), s.decCodecContext.TimeBase(),
+					s.decFrame, fmt.Sprintf("%s-%d-%d.jpg", *output, j, i)))
+			}
+			i++
+			// Filter, encode and write frame
+			// if err := filterEncodeWriteFrame(s.decFrame, s); err != nil {
+			// 	log.Fatal(fmt.Errorf("main: filtering, encoding and writing frame failed: %w", err))
+			// }
 		}
 	}
 
 	// Loop through streams
-	for _, s := range streams {
-		// Flush filter
-		if err := filterEncodeWriteFrame(nil, s); err != nil {
-			log.Fatal(fmt.Errorf("main: filtering, encoding and writing frame failed: %w", err))
-		}
+	// for _, s := range streams {
+	// 	// Flush filter
+	// 	if err := filterEncodeWriteFrame(nil, s); err != nil {
+	// 		log.Fatal(fmt.Errorf("main: filtering, encoding and writing frame failed: %w", err))
+	// 	}
 
-		// Flush encoder
-		if err := encodeWriteFrame(nil, s); err != nil {
-			log.Fatal(fmt.Errorf("main: encoding and writing frame failed: %w", err))
-		}
-	}
+	// 	// Flush encoder
+	// 	if err := encodeWriteFrame(nil, s); err != nil {
+	// 		log.Fatal(fmt.Errorf("main: encoding and writing frame failed: %w", err))
+	// 	}
+	// }
+	j++
 
 	// Write trailer
-	if err := outputFormatContext.WriteTrailer(); err != nil {
-		log.Fatal(fmt.Errorf("main: writing trailer failed: %w", err))
-	}
+	// if err := outputFormatContext.WriteTrailer(); err != nil {
+	// 	log.Fatal(fmt.Errorf("main: writing trailer failed: %w", err))
+	// }
 
 	// Success
 	log.Println("success")
@@ -170,7 +182,7 @@ func openInputFile() (err error) {
 		}
 
 		// Create stream
-		s := &stream{inputStream: is}
+		s := &LocalStream{inputStream: is}
 
 		// Find decoder
 		if s.decCodec = astiav.FindDecoder(is.CodecParameters().CodecID()); s.decCodec == nil {
@@ -438,7 +450,7 @@ func initFilters() (err error) {
 	return
 }
 
-func filterEncodeWriteFrame(f *astiav.Frame, s *stream) (err error) {
+func filterEncodeWriteFrame(f *astiav.Frame, s *LocalStream) (err error) {
 	// Add frame
 	if err = s.buffersrcContext.BuffersrcAddFrame(f, astiav.NewBuffersrcFlags(astiav.BuffersrcFlagKeepRef)); err != nil {
 		err = fmt.Errorf("main: adding frame failed: %w", err)
@@ -475,7 +487,7 @@ func filterEncodeWriteFrame(f *astiav.Frame, s *stream) (err error) {
 	return
 }
 
-func encodeWriteFrame(f *astiav.Frame, s *stream) (err error) {
+func encodeWriteFrame(f *astiav.Frame, s *LocalStream) (err error) {
 	// Unref packet
 	s.encPkt.Unref()
 
@@ -508,4 +520,58 @@ func encodeWriteFrame(f *astiav.Frame, s *stream) (err error) {
 		}
 	}
 	return
+}
+
+func saveFrameAsJpeg(picFmt astiav.PixelFormat, tb astiav.Rational, //cc *astiav.CodecContext,
+	f *astiav.Frame, filename string) error {
+	// fa := strings.Split(filename, ".")
+	// codec := astiav.FindEncoderByName(fa[len(fa)-1])
+	codec := astiav.FindEncoder(astiav.CodecIDMjpeg)
+	if codec == nil {
+		return errors.New("main: codec is nil")
+	} else {
+		fmt.Println("Codec: ", codec.Name())
+	}
+	jpegCc := astiav.AllocCodecContext(codec)
+	if jpegCc == nil {
+		return errors.New("main: jpeg codec context is nil")
+	}
+	defer jpegCc.Free()
+	jpegCc.SetPixelFormat(astiav.PixelFormatYuvj444P) //cc.PixelFormat())
+	jpegCc.SetTimeBase(tb)                            //cc.TimeBase())
+	jpegCc.SetWidth(f.Width())
+	jpegCc.SetHeight(f.Height())
+
+	err := jpegCc.Open(codec, nil)
+	if err != nil {
+		return fmt.Errorf("main: opening codec failed: %w", err)
+	}
+
+	pkt := astiav.AllocPacket()
+	if pkt == nil {
+		return errors.New("main: packet is nil")
+	}
+	defer pkt.Free()
+
+	pkt.SetSize(0)
+
+	err = jpegCc.SendFrame(f)
+	if err != nil {
+		return fmt.Errorf("main: sending frame failed: %w", err)
+	}
+
+	err = jpegCc.ReceivePacket(pkt)
+
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("main: opening file failed: %w", err)
+	}
+	defer file.Close()
+
+	_, err = file.Write(pkt.Data())
+	if err != nil {
+		return fmt.Errorf("main: writing file failed: %w", err)
+	}
+
+	return nil
 }

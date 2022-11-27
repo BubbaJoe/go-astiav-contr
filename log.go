@@ -54,6 +54,28 @@ func SetLogLevel(l LogLevel) {
 	C.av_log_set_level(C.int(l))
 }
 
+func (l LogLevel) String() string {
+	switch l {
+	case LogLevelQuiet:
+		return "quiet"
+	case LogLevelPanic:
+		return "panic"
+	case LogLevelFatal:
+		return "fatal"
+	case LogLevelError:
+		return "error"
+	case LogLevelWarning:
+		return "warning"
+	case LogLevelInfo:
+		return "info"
+	case LogLevelVerbose:
+		return "verbose"
+	case LogLevelDebug:
+		return "debug"
+	}
+	return ""
+}
+
 type LogCallback func(l LogLevel, fmt, msg, parent string)
 
 var logCallback LogCallback

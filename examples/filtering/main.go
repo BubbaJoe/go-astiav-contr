@@ -38,7 +38,7 @@ func main() {
 	// Handle ffmpeg logs
 	astiav.SetLogLevel(astiav.LogLevelDebug)
 	astiav.SetLogCallback(func(l astiav.LogLevel, fmt, msg, parent string) {
-		log.Printf("ffmpeg log: %s (level: %d)\n", strings.TrimSpace(msg), l)
+		log.Printf("ffmpeg log: %s (level: %s)\n", strings.TrimSpace(msg), l)
 	})
 
 	// Parse flags
