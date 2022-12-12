@@ -29,7 +29,7 @@ func (d *FrameSideData) Data() []byte {
 
 func (d *FrameSideData) SetData(b []byte) {
 	size := C.size_t(math.Min(float64(len(b)), float64(d.c.size)))
-	C.memcpy(unsafe.Pointer(d.c.data), C.CBytes(b), size)
+	C.memcpy(unsafe.Pointer(d.c.data), unsafe.Pointer(&b[0]), size)
 }
 
 func (d *FrameSideData) Type() FrameSideDataType {

@@ -83,19 +83,9 @@ func (f *Frame) Data() [NumDataPointers][]byte {
 }
 
 func (f *Frame) SetData(d [NumDataPointers][]byte) {
-	panic("not implemented")
-	// for i := 0; i < f.NbSamples(); i++ {
-	// 	f.c.data[i] = (*C.uint8_t)(unsafe.Pointer(&d[i]))
-	// }
-}
-
-func (f *Frame) DataPtr() [NumDataPointers]*byte {
-	b := [NumDataPointers]*byte{}
-	fData := f.Data()
-	for i := 0; i < int(NumDataPointers); i++ {
-		b[i] = &fData[i][0]
+	for i := 0; i < f.NbSamples(); i++ {
+		f.c.data[i] = (*C.uint8_t)(C.CBytes(d[i]))
 	}
-	return b
 }
 
 func (f *Frame) DataFull() []byte {
@@ -113,28 +103,6 @@ func (f *Frame) DataFull() []byte {
 		currentStart += copy(fullData[currentStart:], byteArr)
 	}
 	return fullData
-
-	// var fullSize int
-	// for i := 0; i < int(NumDataPointers); i++ {
-	// 	size := int(f.c.linesize[i])
-	// 	if size == 0 {
-	// 		continue
-	// 	}
-
-	// 	ls, err := ImageGetLinesize(f.PixelFormat(),
-	// 		f.Width(), i)
-	// 	if ls != size || err != nil {
-	// 		fmt.Printf("%d != %d: %d\n", ls, size, i)
-	// 		panic(err)
-	// 	}
-	// 	if f.c.height > 0 {
-	// 		size *= int(f.c.height)
-	// 	} else if f.c.channels > 0 {
-	// 		size *= int(f.c.channels)
-	// 	}
-	// 	fullSize += size
-	// }
-	// return C.GoBytes(unsafe.Pointer(&f.c.data[0]), C.int(fullSize))
 }
 
 func (f *Frame) SetDataFull(b []byte) {
@@ -142,7 +110,7 @@ func (f *Frame) SetDataFull(b []byte) {
 	for i, size := range f.getPlainSizes() {
 		sl := C.size_t(size)
 		cb := C.av_malloc(sl)
-		C.memcpy(cb, C.CBytes(b[currentPos:currentPos+size]), sl)
+		C.memcpy(cb, unsafe.Pointer(&b[currentPos]), sl)
 		f.c.data[i] = (*C.uint8_t)(unsafe.Pointer(cb))
 		currentPos += size
 	}

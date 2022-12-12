@@ -74,19 +74,25 @@ func AllocIOContextCallback(
 	}
 }
 
+func AllocIOContextReader(
+	rdr io.Reader,
+) *IOContext {
+	return AllocIOContextReadSeeker(rdr, nil)
+}
+
 // Creates IOContext for reading and/or seeking
-func AllocIOContextReadSeek(
+func AllocIOContextReadSeeker(
 	rdr io.Reader, skr io.Seeker,
 ) *IOContext {
 	id := addIOCallback(
 		&ioContextCbs{
 			readCb: func(inputBuf []byte) int {
 				n, err := rdr.Read(inputBuf)
-				// fmt.Println("read", len(inputBuf), n, err)
 				if err != nil {
 					if err == io.EOF {
 						return int(ErrEof)
 					}
+					Logf(LogLevelError, "[astiav] read error: %v", err)
 					return int(ErrEio)
 				}
 				return n
@@ -101,24 +107,21 @@ func AllocIOContextReadSeek(
 				}
 				n, err := skr.Seek(offset, whence)
 				if err != nil {
+					Logf(LogLevelError, "[astiav] seek error: %s\n", err)
 					return -1
 				}
+				// Logf(LogLevelInfo, "seek %d %d > %d\n", offset, whence, n)
 				return n
 			},
 		},
 	)
 	id_c := C.int(id)
-	readCallback := (*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_read))
-	if rdr == nil {
-		readCallback = nil
-	}
-	seekCallback := (*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_seek))
-	if skr == nil {
-		seekCallback = nil
-	}
+
 	ctx := C.avio_alloc_context(
-		nil, C.int(0), C.int(0), unsafe.Pointer(&id_c),
-		readCallback, nil, seekCallback,
+		(*C.uchar)(C.av_malloc(1)), C.int(0), C.int(0), unsafe.Pointer(&id_c),
+		(*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_read)),
+		(*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_write)),
+		(*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_seek)),
 	)
 	ctx.direct = 1
 
@@ -127,8 +130,13 @@ func AllocIOContextReadSeek(
 	}
 }
 
-// Creates IOContext for reading and/or seeking
-func AllocIOContextWriteSeek(
+func AllocIOContextWriter(
+	wtr io.Writer,
+) *IOContext {
+	return AllocIOContextWriteSeeker(wtr, nil)
+}
+
+func AllocIOContextWriteSeeker(
 	wtr io.Writer, skr io.Seeker,
 ) *IOContext {
 	wf := C.int(0)
@@ -164,17 +172,11 @@ func AllocIOContextWriteSeek(
 		},
 	)
 	id_c := C.int(id)
-	writeCallback := (*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_write))
-	if wtr == nil {
-		writeCallback = nil
-	}
-	seekCallback := (*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_seek))
-	if skr == nil {
-		seekCallback = nil
-	}
 	ctx := C.avio_alloc_context(
 		nil, C.int(0), wf, unsafe.Pointer(&id_c),
-		nil, writeCallback, seekCallback,
+		(*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_read)),
+		(*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_write)),
+		(*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_seek)),
 	)
 	ctx.direct = 1
 
@@ -183,7 +185,6 @@ func AllocIOContextWriteSeek(
 	}
 }
 
-// Creates *IOContext using a buffer which will be read (not modified)
 func AllocIOContextBufferReader(buf []byte) *IOContext {
 	var pos = 0
 
@@ -220,7 +221,8 @@ func AllocIOContextBufferReader(buf []byte) *IOContext {
 	ctx := C.avio_alloc_context(
 		nil, 0, C.int(0), unsafe.Pointer(&id),
 		(*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_read)),
-		nil, (*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_seek)),
+		(*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_write)),
+		(*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_seek)),
 	)
 
 	ctx.direct = 1
@@ -230,9 +232,6 @@ func AllocIOContextBufferReader(buf []byte) *IOContext {
 	}
 }
 
-// TODO: Writer, Reader, Seeker???
-
-// AllocIOContextBufferWriter creates IOContext using buffer
 func AllocIOContextBufferWriter(buf []byte) *IOContext {
 	var pos = 0
 
@@ -247,6 +246,7 @@ func AllocIOContextBufferWriter(buf []byte) *IOContext {
 					return int(ErrBufferTooSmall)
 				}
 				copy(buf[pos:], inputBuf[:inputSize])
+				pos += inputSize
 				return inputSize
 			},
 			seekCb: func(offset int64, whence int) int64 {
@@ -265,9 +265,10 @@ func AllocIOContextBufferWriter(buf []byte) *IOContext {
 	id_c := C.int(id)
 
 	ctx := C.avio_alloc_context(
-		nil, C.int(0), C.int(0), unsafe.Pointer(&id_c),
+		nil, C.int(0), C.int(1), unsafe.Pointer(&id_c),
 		(*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_read)),
-		nil, (*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_seek)),
+		(*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_write)),
+		(*[0]byte)(unsafe.Pointer(C.go_ioctx_proxy_seek)),
 	)
 
 	ctx.direct = 1
@@ -287,18 +288,22 @@ func newIOContextFromC(c *C.struct_AVIOContext) *IOContext {
 }
 
 func (ic *IOContext) Free() {
+	ic.freeCbs()
 	C.avio_context_free(&ic.c)
 }
 
 func (ic *IOContext) Close() error {
-	if ic.c == nil {
+	if ic.c != nil {
+		ic.freeCbs()
 		return newError(C.avio_close(ic.c))
 	}
 	return nil
 }
 
 func (ic *IOContext) Closep() error {
-	if ic.c == nil {
+	return ic.Close()
+	if ic.c != nil {
+		ic.freeCbs()
 		return newError(C.avio_closep(&ic.c))
 	}
 	return nil
@@ -328,7 +333,7 @@ func (ic *IOContext) OpenWith(filename string, flags IOContextFlags, opts *Dicti
 	return newError(C.avio_open2(&ic.c, cfi, C.int(flags), nil, copts))
 }
 
-func (ic *IOContext) EOFReached() bool {
+func (ic *IOContext) EofReached() bool {
 	return int(ic.c.eof_reached) != 0
 }
 
@@ -340,7 +345,7 @@ func (ic *IOContext) Write(b []byte) error {
 	if b == nil {
 		return nil
 	}
-	C.avio_write(ic.c, (*C.uchar)(C.CBytes(b)), C.int(len(b)))
+	C.avio_write(ic.c, (*C.uchar)(&b[0]), C.int(len(b)))
 	return nil
 }
 
@@ -354,14 +359,9 @@ func (ic *IOContext) Buffer() []byte {
 
 func (ic *IOContext) Read(b []byte) (int, error) {
 	sliceSize := len(b)
-	buf := C.CBytes(b)
-	defer C.free(buf)
-	ret := C.avio_read(ic.c, (*C.uchar)(buf), C.int(sliceSize))
+	ret := C.avio_read(ic.c, (*C.uchar)(&b[0]), C.int(sliceSize))
 	if ret < 0 {
 		return int(ret), newError(ret)
-	}
-	for i := 0; i < int(ret); i++ {
-		b[i] = *(*byte)(offsetPtr(buf, i))
 	}
 
 	return int(ret), nil
@@ -408,6 +408,15 @@ func (ic *IOContext) CurrentPosition() int64 {
 
 func (ic *IOContext) Size() int64 {
 	return int64(C.avio_size(ic.c))
+}
+
+func (ic *IOContext) freeCbs() {
+	ioContextLock.Lock()
+	defer ioContextLock.Unlock()
+	id_c := (*C.int)(ic.c.opaque)
+	if id_c != nil && len(ioContextCallbacks) > int(*id_c) {
+		ioContextCallbacks[int(*id_c)] = nil
+	}
 }
 
 func fetchIOCallback(id int) (*ioContextCbs, bool) {

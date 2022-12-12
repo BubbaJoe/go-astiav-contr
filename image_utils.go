@@ -34,7 +34,7 @@ func ImageFillFrameArrays(
 	return newError(C.av_image_fill_arrays(
 		(**C.uchar)(unsafe.Pointer(&frame.c.data)),
 		(*C.int)(unsafe.Pointer(&frame.c.linesize)),
-		(*C.uchar)(C.CBytes(src)),
+		(*C.uchar)(unsafe.Pointer(&src[0])),
 		int32(frame.PixelFormat()),
 		C.int(width),
 		C.int(height),

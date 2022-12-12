@@ -2,9 +2,9 @@ package main
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 
@@ -12,27 +12,132 @@ import (
 	"github.com/asticode/go-astikit"
 )
 
-var (
-	input = flag.String("i", "", "the input path")
-)
+// char args[512];
+// int ret = 0;
+// const AVFilter *bufferSrc  = avfilter_get_by_name("buffer");
+// const AVFilter *bufferOvr  = avfilter_get_by_name("buffer");
+// const AVFilter *bufferSink = avfilter_get_by_name("buffersink");
+// const AVFilter *ovrFilter  = avfilter_get_by_name("overlay");
+// const AVFilter *colorFilter  = avfilter_get_by_name("colorchannelmixer");
+// enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE };
+
+// fFilterGraph = avfilter_graph_alloc();
+// if (!fFilterGraph) {
+// 	ret = AVERROR(ENOMEM);
+// 	goto end;
+// }
+
+// /* buffer video source: the decoded frames from the decoder will be inserted here. */
+// snprintf(args, sizeof(args),
+// 		"video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
+// 		decCtx->width, decCtx->height, decCtx->pix_fmt,
+// 		fTimeBase.num, fTimeBase.den,
+// 		decCtx->sample_aspect_ratio.num, decCtx->sample_aspect_ratio.den);
+// ret = avfilter_graph_create_filter(&fBufSrc0Ctx, bufferSrc, "in0",
+// 					args, NULL, fFilterGraph);
+// if (ret < 0)
+// 	goto end;
+
+// /* buffer video overlay source: the overlayed frame from the file will be inserted here. */
+// snprintf(args, sizeof(args),
+// 		"video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
+// 		ovrCtx->width, ovrCtx->height, ovrCtx->pix_fmt,
+// 		fTimeBase.num, fTimeBase.den,
+// 		ovrCtx->sample_aspect_ratio.num, ovrCtx->sample_aspect_ratio.den);
+// ret = avfilter_graph_create_filter(&fBufSrc1Ctx, bufferOvr, "in1",
+// 					args, NULL, fFilterGraph);
+// if (ret < 0)
+// 	goto end;
+
+// /* color filter */
+// snprintf(args, sizeof(args), "aa=%f", (float)fWatermarkOpacity / 10.0);
+// ret = avfilter_graph_create_filter(&fColorFilterCtx, colorFilter, "colorFilter",
+// 					args, NULL, fFilterGraph);
+// if (ret < 0)
+// 	goto end;
+
+// /* overlay filter */
+// switch (fWatermarkPos) {
+// case 0:
+// 	/* Top left */
+// 	snprintf(args, sizeof(args), "x=%d:y=%d:repeatlast=1",
+// 			fWatermarkOffset, fWatermarkOffset);
+// 	break;
+// case 1:
+// 	/* Top right */
+// 	snprintf(args, sizeof(args), "x=W-w-%d:y=%d:repeatlast=1",
+// 			fWatermarkOffset, fWatermarkOffset);
+// 	break;
+// case 3:
+// 	/* Bottom left */
+// 	snprintf(args, sizeof(args), "x=%d:y=H-h-%d:repeatlast=1",
+// 			fWatermarkOffset, fWatermarkOffset);
+// 	break;
+// case 4:
+// 	/* Bottom right */
+// 	snprintf(args, sizeof(args), "x=W-w-%d:y=H-h-%d:repeatlast=1",
+// 			fWatermarkOffset, fWatermarkOffset);
+// 	break;
+
+// case 2:
+// default:
+// 	/* Center */
+// 	snprintf(args, sizeof(args), "x=(W-w)/2:y=(H-h)/2:repeatlast=1");
+// 	break;
+// }
+// ret = avfilter_graph_create_filter(&fOvrFilterCtx, ovrFilter, "overlay",
+// 					args, NULL, fFilterGraph);
+// if (ret < 0)
+// 	goto end;
+
+// /* buffer sink - destination of the final video */
+// ret = avfilter_graph_create_filter(&fBufSinkCtx, bufferSink, "out",
+// 					NULL, NULL, fFilterGraph);
+// if (ret < 0)
+// 	goto end;
+
+// ret = av_opt_set_int_list(fBufSinkCtx, "pix_fmts", pix_fmts,
+// 				AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
+// if (ret < 0)
+// 	goto end;
+
+// /*
+// 	* Link all filters..
+// 	*/
+// avfilter_link(fBufSrc0Ctx, 0, fOvrFilterCtx, 0);
+// avfilter_link(fBufSrc1Ctx, 0, fColorFilterCtx, 0);
+// avfilter_link(fColorFilterCtx, 0, fOvrFilterCtx, 1);
+// avfilter_link(fOvrFilterCtx, 0, fBufSinkCtx, 0);
+// if ((ret = avfilter_graph_config(fFilterGraph, NULL)) < 0)
+// 	goto end;
+
+// end:
 
 var (
-	c                  = astikit.NewCloser()
-	inputFormatContext *astiav.FormatContext
-	s                  *stream
-)
+	c              = astikit.NewCloser()
+	src     string = os.Args[0]
+	overlay string = os.Args[1]
+	dst     string = os.Args[2]
 
-type stream struct {
-	buffersinkContext *astiav.FilterContext
-	buffersrcContext  *astiav.FilterContext
-	decCodec          *astiav.Codec
-	decCodecContext   *astiav.CodecContext
-	decFrame          *astiav.Frame
-	filterFrame       *astiav.Frame
-	filterGraph       *astiav.FilterGraph
-	inputStream       *astiav.Stream
-	lastPts           int64
-}
+	srcFormatContext     *astiav.FormatContext
+	overlayFormatContext *astiav.FormatContext
+	dstFormatContext     *astiav.FormatContext
+
+	bufferSrcContext     *astiav.FilterContext
+	bufferOverlayContext *astiav.FilterContext
+	bufferSinkContext    *astiav.FilterContext
+
+	decCodec        *astiav.Codec
+	decCodecContext *astiav.CodecContext
+	decFrame        *astiav.Frame
+
+	filterDesc  = "[in]scale=300:100[scl];[in1][scl]overlay=25:25"
+	filterFrame *astiav.Frame
+	filterGraph *astiav.FilterGraph
+
+	inputStream *astiav.Stream
+	lastPts     int64
+)
 
 func main() {
 	// Handle ffmpeg logs
@@ -41,14 +146,11 @@ func main() {
 		log.Printf("ffmpeg log: %s (level: %s)\n", strings.TrimSpace(msg), l)
 	})
 
-	// Parse flags
-	flag.Parse()
-
 	// Usage
-	if *input == "" {
-		log.Println("Usage: <binary path> -i <input path>")
-		return
-	}
+	// if inputs[0] == "" {
+	// 	log.Println("Usage: <binary path> -i <input path>")
+	// 	return
+	// }
 
 	// We use an astikit.Closer to free all resources properly
 	defer c.Close()
@@ -70,7 +172,7 @@ func main() {
 	// Loop through packets
 	for {
 		// Read frame
-		if err := inputFormatContext.ReadFrame(pkt); err != nil {
+		if err := srcFormatContext.ReadFrame(pkt); err != nil {
 			if errors.Is(err, astiav.ErrEof) {
 				break
 			}
@@ -78,19 +180,19 @@ func main() {
 		}
 
 		// Invalid stream
-		if pkt.StreamIndex() != s.inputStream.Index() {
+		if pkt.StreamIndex() != inputStream.Index() {
 			continue
 		}
 
 		// Send packet
-		if err := s.decCodecContext.SendPacket(pkt); err != nil {
+		if err := decCodecContext.SendPacket(pkt); err != nil {
 			log.Fatal(fmt.Errorf("main: sending packet failed: %w", err))
 		}
 
 		// Loop
 		for {
 			// Receive frame
-			if err := s.decCodecContext.ReceiveFrame(s.decFrame); err != nil {
+			if err := decCodecContext.ReceiveFrame(decFrame); err != nil {
 				if errors.Is(err, astiav.ErrEof) || errors.Is(err, astiav.ErrEagain) {
 					break
 				}
@@ -98,14 +200,14 @@ func main() {
 			}
 
 			// Filter frame
-			if err := filterFrame(s.decFrame, s); err != nil {
+			if err := filter(decFrame); err != nil {
 				log.Fatal(fmt.Errorf("main: filtering frame failed: %w", err))
 			}
 		}
 	}
 
 	// Flush filter
-	if err := filterFrame(nil, s); err != nil {
+	if err := filter(nil); err != nil {
 		log.Fatal(fmt.Errorf("main: filtering frame failed: %w", err))
 	}
 
@@ -115,85 +217,75 @@ func main() {
 
 func openInputFile() (err error) {
 	// Alloc input format context
-	if inputFormatContext = astiav.AllocFormatContext(); inputFormatContext == nil {
+	if srcFormatContext = astiav.AllocFormatContext(); srcFormatContext == nil {
 		err = errors.New("main: input format context is nil")
 		return
 	}
-	c.Add(inputFormatContext.Free)
+	c.Add(srcFormatContext.Free)
 
 	// Open input
-	if err = inputFormatContext.OpenInput(*input, nil, nil); err != nil {
+	if err = srcFormatContext.OpenInput(src, nil, nil); err != nil {
 		err = fmt.Errorf("main: opening input failed: %w", err)
 		return
 	}
-	c.Add(inputFormatContext.CloseInput)
+	c.Add(srcFormatContext.CloseInput)
 
 	// Find stream info
-	if err = inputFormatContext.FindStreamInfo(nil); err != nil {
+	if err = srcFormatContext.FindStreamInfo(nil); err != nil {
 		err = fmt.Errorf("main: finding stream info failed: %w", err)
 		return
 	}
 
 	// Loop through streams
-	for _, is := range inputFormatContext.Streams() {
+	for _, is := range srcFormatContext.Streams() {
 		// Only process video
 		if is.CodecParameters().MediaType() != astiav.MediaTypeVideo {
 			continue
 		}
-
-		// Create stream
-		s = &stream{
-			inputStream: is,
-			lastPts:     astiav.NoPtsValue,
-		}
+		inputStream = is
+		lastPts = astiav.NoPtsValue
 
 		// Find decoder
-		if s.decCodec = astiav.FindDecoder(is.CodecParameters().CodecID()); s.decCodec == nil {
+		if decCodec = astiav.FindDecoder(is.CodecParameters().CodecID()); decCodec == nil {
 			err = errors.New("main: codec is nil")
 			return
 		}
 
 		// Alloc codec context
-		if s.decCodecContext = astiav.AllocCodecContext(s.decCodec); s.decCodecContext == nil {
+		if decCodecContext = astiav.AllocCodecContext(decCodec); decCodecContext == nil {
 			err = errors.New("main: codec context is nil")
 			return
 		}
-		c.Add(s.decCodecContext.Free)
+		c.Add(decCodecContext.Free)
 
 		// Update codec context
-		if err = is.CodecParameters().ToCodecContext(s.decCodecContext); err != nil {
+		if err = is.CodecParameters().ToCodecContext(decCodecContext); err != nil {
 			err = fmt.Errorf("main: updating codec context failed: %w", err)
 			return
 		}
 
 		// Open codec context
-		if err = s.decCodecContext.Open(s.decCodec, nil); err != nil {
+		if err = decCodecContext.Open(decCodec, nil); err != nil {
 			err = fmt.Errorf("main: opening codec context failed: %w", err)
 			return
 		}
 
 		// Alloc frame
-		s.decFrame = astiav.AllocFrame()
-		c.Add(s.decFrame.Free)
+		decFrame = astiav.AllocFrame()
+		c.Add(decFrame.Free)
 
 		break
-	}
-
-	// No video stream
-	if s == nil {
-		err = errors.New("main: no video stream")
-		return
 	}
 	return
 }
 
 func initFilter() (err error) {
 	// Alloc graph
-	if s.filterGraph = astiav.AllocFilterGraph(); s.filterGraph == nil {
+	if filterGraph = astiav.AllocFilterGraph(); filterGraph == nil {
 		err = errors.New("main: graph is nil")
 		return
 	}
-	c.Add(s.filterGraph.Free)
+	c.Add(filterGraph.Free)
 
 	// Alloc outputs
 	outputs := astiav.AllocFilterInOut()
@@ -226,53 +318,73 @@ func initFilter() (err error) {
 	}
 
 	// Create filter contexts
-	if s.buffersrcContext, err = s.filterGraph.NewFilterContext(buffersrc, "in", astiav.FilterArgs{
-		"pix_fmt":      strconv.Itoa(int(s.decCodecContext.PixelFormat())),
-		"pixel_aspect": s.decCodecContext.SampleAspectRatio().String(),
-		"time_base":    s.inputStream.TimeBase().String(),
-		"video_size":   strconv.Itoa(s.decCodecContext.Width()) + "x" + strconv.Itoa(s.decCodecContext.Height()),
+	if bufferSrcContext, err = filterGraph.NewFilterContext(buffersrc, "in", astiav.FilterArgs{
+		"pix_fmt":      strconv.Itoa(decCodecContext.PixelFormat().Int()),
+		"pixel_aspect": decCodecContext.SampleAspectRatio().String(),
+		"time_base":    inputStream.TimeBase().String(),
+		"video_size":   strconv.Itoa(decCodecContext.Width()) + "x" + strconv.Itoa(decCodecContext.Height()),
+		// "re":           "",
 	}); err != nil {
-		err = fmt.Errorf("main: creating buffersrc context failed: %w", err)
+		err = fmt.Errorf("main: creating buffersrc1 context failed: %w", err)
 		return
 	}
-	if s.buffersinkContext, err = s.filterGraph.NewFilterContext(buffersink, "in", nil); err != nil {
+	if bufferOverlayContext, err = filterGraph.NewFilterContext(buffersrc, "in1", astiav.FilterArgs{
+		// "pix_fmt":      strconv.Itoa(decCodecContext.PixelFormat().Int()),
+		// "pixel_aspect": decCodecContext.SampleAspectRatio().String(),
+		// "time_base":    inputStream.TimeBase().String(),
+		// "video_size":   strconv.Itoa(decCodecContext.Width()) + "x" + strconv.Itoa(decCodecContext.Height()),
+		// "re":           "",
+	}); err != nil {
+		err = fmt.Errorf("main: creating buffersrc2 context failed: %w", err)
+		return
+	}
+	if bufferSinkContext, err = filterGraph.NewFilterContext(buffersink, "in", nil); err != nil {
+		err = fmt.Errorf("main: creating buffersink context failed: %w", err)
+		return
+	}
+	if bufferSinkContext, err = filterGraph.NewFilterContext(buffersink, "in1", nil); err != nil {
 		err = fmt.Errorf("main: creating buffersink context failed: %w", err)
 		return
 	}
 
 	// Update outputs
 	outputs.SetName("in")
-	outputs.SetFilterContext(s.buffersrcContext)
+	outputs.SetFilterContext(bufferSrcContext)
 	outputs.SetPadIdx(0)
+	// outputs.SetNext(outputs)
+
+	// outputs.SetName("in1")
+	// outputs.SetFilterContext(bufferOverlayContext)
+	// outputs.SetPadIdx(0)
 	outputs.SetNext(nil)
 
 	// Update inputs
 	inputs.SetName("out")
-	inputs.SetFilterContext(s.buffersinkContext)
+	inputs.SetFilterContext(bufferSinkContext)
 	inputs.SetPadIdx(0)
 	inputs.SetNext(nil)
 
 	// Parse
-	if err = s.filterGraph.Parse("transpose=cclock", inputs, outputs); err != nil {
+	if err = filterGraph.Parse(filterDesc, inputs, outputs); err != nil {
 		err = fmt.Errorf("main: parsing filter failed: %w", err)
 		return
 	}
 
 	// Configure
-	if err = s.filterGraph.Configure(); err != nil {
+	if err = filterGraph.Configure(); err != nil {
 		err = fmt.Errorf("main: configuring filter failed: %w", err)
 		return
 	}
 
 	// Alloc frame
-	s.filterFrame = astiav.AllocFrame()
-	c.Add(s.filterFrame.Free)
+	filterFrame = astiav.AllocFrame()
+	c.Add(filterFrame.Free)
 	return
 }
 
-func filterFrame(f *astiav.Frame, s *stream) (err error) {
+func filter(f *astiav.Frame) (err error) {
 	// Add frame
-	if err = s.buffersrcContext.BuffersrcAddFrame(f, astiav.NewBuffersrcFlags(astiav.BuffersrcFlagKeepRef)); err != nil {
+	if err = bufferSrcContext.BuffersrcAddFrame(f, astiav.NewBuffersrcFlags(astiav.BuffersrcFlagKeepRef)); err != nil {
 		err = fmt.Errorf("main: adding frame failed: %w", err)
 		return
 	}
@@ -280,10 +392,10 @@ func filterFrame(f *astiav.Frame, s *stream) (err error) {
 	// Loop
 	for {
 		// Unref frame
-		s.filterFrame.Unref()
+		filterFrame.Unref()
 
 		// Get frame
-		if err = s.buffersinkContext.BuffersinkGetFrame(s.filterFrame, astiav.NewBuffersinkFlags()); err != nil {
+		if err = bufferSinkContext.BuffersinkGetFrame(filterFrame, astiav.NewBuffersinkFlags()); err != nil {
 			if errors.Is(err, astiav.ErrEof) || errors.Is(err, astiav.ErrEagain) {
 				err = nil
 				break
@@ -293,7 +405,7 @@ func filterFrame(f *astiav.Frame, s *stream) (err error) {
 		}
 
 		// Do something with filtered frame
-		log.Printf("new filtered frame: %dx%d\n", s.filterFrame.Width(), s.filterFrame.Height())
+		log.Printf("new filtered frame: %dx%d\n", filterFrame.Width(), filterFrame.Height())
 	}
 	return
 }

@@ -209,7 +209,6 @@ func streamVideo(width, height, fps, cameraId int) {
 	for {
 		if cam.Read(&mat) {
 			numReads += 1
-			// matPtrs, err := mat.DataPtrUint8()
 			if err != nil {
 				panic(err)
 			}

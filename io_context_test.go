@@ -34,7 +34,6 @@ func TestIOContext_Open_ReadWriteSeek(t *testing.T) {
 
 	// Read Test
 	c = astiav.NewIOContext()
-	// using IOContextFlagReadWrite, ...
 	err = c.Open(path, astiav.NewIOContextFlags(astiav.IOContextFlagRead))
 	require.NoError(t, err)
 
@@ -169,10 +168,10 @@ func TestIOContext_Reader(t *testing.T) {
 	buffer := randomBytes(1024 * 1024)
 
 	c := astiav.AllocIOContextBufferReader(buffer)
-	defer c.Closep()
+	defer c.Free()
 
-	err := c.Write([]byte("testtest"))
-	require.NoError(t, err)
+	// err := c.Write([]byte("testtest"))
+	// require.NoError(t, err)
 
 	// fmt.Println("write done", c.Size())
 	// c.Flush()
@@ -199,6 +198,27 @@ func TestIOContext_Reader(t *testing.T) {
 
 }
 
+func TestIOContext_Writer(t *testing.T) {
+	rbuffer := randomBytes(1024)
+	buffer := make([]byte, 1024)
+
+	c := astiav.AllocIOContextBufferWriter(buffer)
+	defer c.Free()
+
+	err := c.Write(rbuffer)
+	c.Flush()
+	require.NoError(t, err)
+	require.Equal(t, rbuffer, buffer)
+
+	require.True(t, c.Seekable())
+	i, err := c.Seek(0, io.SeekStart)
+	require.Equal(t, int64(0), i)
+
+	n, err := c.Read(make([]byte, 256))
+	require.True(t, astiav.ErrEio.Is(err))
+	require.Equal(t, int(astiav.ErrEio), n)
+}
+
 func TestIOContext_Callbacks_(t *testing.T) {
 	readCount := 0
 	writeCount := 0
@@ -216,7 +236,8 @@ func TestIOContext_Callbacks_(t *testing.T) {
 				return len(b16)
 			}
 			return int(astiav.ErrEof)
-		}, func(buf []byte) int {
+		},
+		func(buf []byte) int {
 			writeCount += 1
 			if writeCount == 1 {
 				require.Equal(t, b16, buf)
@@ -226,12 +247,13 @@ func TestIOContext_Callbacks_(t *testing.T) {
 				require.Equal(t, b64, buf)
 			}
 			return len(buf)
-		}, func(offset int64, whence int) int64 {
+		},
+		func(offset int64, whence int) int64 {
 			seekCount += 1
 			return offset
 		},
 	)
-	defer c.Closep()
+	defer c.Free()
 
 	err := c.Write(b16)
 	require.NoError(t, err)
@@ -303,7 +325,7 @@ func TestIOContext_Callbacks(t *testing.T) {
 			pos = int(offset)
 			return offset
 		})
-	defer c.Closep()
+	defer c.Free()
 
 	original := randomBytes(128)
 	err := c.Write(original)
@@ -335,91 +357,99 @@ func randomBytes(size int) []byte {
 }
 
 func BenchmarkIOContext_OpenMisc(b *testing.B) {
-	astiav.SetLogLevel(astiav.LogLevelQuiet)
-	file, err := os.Open("testdata/video.mp4")
-	if err != nil {
-		b.Fatal(err)
-	}
+	astiav.SetLogLevel(astiav.LogLevelError)
 	// b.Logf("file size: %d\n", len(file))
 
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
 		b.StartTimer()
-		fc := astiav.AllocFormatContext()
-		defer fc.Free()
-		ioCtx := astiav.AllocIOContextBufferReader(file)
-		if ioCtx == nil {
-			b.Fatal("ioCtx is nil")
-		}
-		defer ioCtx.Closep()
-		fc.SetPb(ioCtx)
-		dict1 := astiav.NewDictionary()
-		if dict1 == nil {
-			b.Fatal("dict is nil")
-		}
-		err = fc.OpenInput("", nil, dict1)
-		if err != nil {
-			b.Fatal(err)
-		}
-		dict2 := astiav.NewDictionary()
-		if dict2 == nil {
-			b.Fatal("dict is nil")
-		}
-		err := fc.FindStreamInfo(dict2)
-		if err != nil {
-			b.Fatal(err)
-		}
-		// if dict.Len() > 0 {
-		// 	buf := make([]byte, 0, 1024*1024)
-		// 	dict.Unpack(buf)
-		// 	b.Logf("Dictionay Data: %s\n", string(buf))
-		// }
-		// decCc := astiav.AllocCodecContext(fc.Streams()[0].Codecpar())
-		for _, is := range fc.Streams() {
-			// Only process audio or video
-			// b.Logf("found media type (%s) for stream%d", is.CodecParameters().MediaType().String(), is.Index())
-			if is.CodecParameters().MediaType() != astiav.MediaTypeAudio &&
-				is.CodecParameters().MediaType() != astiav.MediaTypeVideo {
-				continue
-			}
-			// Find decoder
-			// 		if dec := astiav.FindDecoder(is.CodecParameters().CodecID()); dec == nil {
-			// 			b.Fatal("main: codec is nil")
-			// 		} else {
-			// 			b.Logf("main: found decoder for %s: %s\n", is.CodecParameters().CodecID().Name(), s.decCodec.Name())
-			// 		}
-
-			// 		// Find encode
-			// 		if enc := astiav.FindEncoder(is.CodecParameters().CodecID()); enc == nil {
-			// 			b.Fatal(errors.New("main: codec is nil"))
-			// 		}
-
-			// 		// Find pixel format
-			// 		if is.CodecParameters().MediaType() == astiav.MediaTypeVideo {
-			// 			b.Logf("pixel format: %s\n", is.CodecParameters().PixelFormat().Name())
-			// 			b.Logf("color range id: %d\n", is.CodecParameters().ColorRange())
-			// 			b.Logf("color space id: %d\n", is.CodecParameters().ColorSpace())
-			// 			b.Logf("color primaries id: %d\n", is.CodecParameters().ColorPrimaries())
-			// 		}
-
-			// 		// Alloc decoder codec context
-			// 		if cc = astiav.AllocCodecContext(dec); cc == nil {
-			// 			b.Fatal("codec context is nil")
-			// 		}
-			// 		defer s.decCodecContext.Free()
-
-			// 		// Update codec context
-			// 		if err := is.CodecParameters().ToCodecContext(s.decCodecContext); err != nil {
-			// 			b.Fatal(fmt.Errorf("updating codec context failed: %w", err))
-			// 		}
-
-			// 		// Open codec context
-			// 		if err := s.decCodecContext.Open(s.decCodec, nil); err != nil {
-			// 			b.Fatal(fmt.Errorf("opening codec context failed: %w", err))
-			// 		}
-
-		}
+		openFromReader(b, "testdata/audio.mp3")
 		b.StopTimer()
+	}
+}
+
+func openFromReader(b *testing.B, fileName string) {
+	file, err := os.Open(fileName)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer file.Close()
+	fc := astiav.AllocFormatContext()
+	defer fc.Free()
+	ioCtx := astiav.AllocIOContextReadSeeker(
+		file, file)
+	if ioCtx == nil {
+		b.Fatal("ioCtx is nil")
+	}
+	defer ioCtx.Free()
+	fc.SetPb(ioCtx)
+	// dict1 := astiav.NewDictionary()
+	// if dict1 == nil {
+	// 	b.Fatal("dict is nil")
+	// }
+	err = fc.OpenInput("testing", nil, nil)
+	if err != nil {
+		b.Fatalf("error: %v %d\n", err, err)
+	}
+	fc.SetFlags(fc.Flags().Add(astiav.FormatContextFlagCustomIo))
+	dict2 := astiav.NewDictionary()
+	if dict2 == nil {
+		b.Fatal("dict is nil")
+	}
+	defer dict2.Free()
+	err = fc.FindStreamInfo(dict2)
+	if err != nil {
+		b.Fatal(err)
+	}
+	// if dict.Len() > 0 {
+	// 	buf := make([]byte, 0, 1024*1024)
+	// 	dict.Unpack(buf)
+	// 	b.Logf("Dictionay Data: %s\n", string(buf))
+	// }
+	// decCc := astiav.AllocCodecContext(fc.Streams()[0].Codecpar())
+	for _, is := range fc.Streams() {
+		// Only process audio or video
+		// b.Logf("found media type (%s) for stream%d", is.CodecParameters().MediaType().String(), is.Index())
+		if is.CodecParameters().MediaType() != astiav.MediaTypeAudio &&
+			is.CodecParameters().MediaType() != astiav.MediaTypeVideo {
+			continue
+		}
+		// Find decoder
+		// 		if dec := astiav.FindDecoder(is.CodecParameters().CodecID()); dec == nil {
+		// 			b.Fatal("main: codec is nil")
+		// 		} else {
+		// 			b.Logf("main: found decoder for %s: %s\n", is.CodecParameters().CodecID().Name(), s.decCodec.Name())
+		// 		}
+
+		// 		// Find encode
+		// 		if enc := astiav.FindEncoder(is.CodecParameters().CodecID()); enc == nil {
+		// 			b.Fatal(errors.New("main: codec is nil"))
+		// 		}
+
+		// 		// Find pixel format
+		// 		if is.CodecParameters().MediaType() == astiav.MediaTypeVideo {
+		// 			b.Logf("pixel format: %s\n", is.CodecParameters().PixelFormat().Name())
+		// 			b.Logf("color range id: %d\n", is.CodecParameters().ColorRange())
+		// 			b.Logf("color space id: %d\n", is.CodecParameters().ColorSpace())
+		// 			b.Logf("color primaries id: %d\n", is.CodecParameters().ColorPrimaries())
+		// 		}
+
+		// 		// Alloc decoder codec context
+		// 		if cc = astiav.AllocCodecContext(dec); cc == nil {
+		// 			b.Fatal("codec context is nil")
+		// 		}
+		// 		defer s.decCodecContext.Free()
+
+		// 		// Update codec context
+		// 		if err := is.CodecParameters().ToCodecContext(s.decCodecContext); err != nil {
+		// 			b.Fatal(fmt.Errorf("updating codec context failed: %w", err))
+		// 		}
+
+		// 		// Open codec context
+		// 		if err := s.decCodecContext.Open(s.decCodec, nil); err != nil {
+		// 			b.Fatal(fmt.Errorf("opening codec context failed: %w", err))
+		// 		}
+
 	}
 }

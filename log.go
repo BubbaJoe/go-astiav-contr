@@ -34,7 +34,10 @@ static inline void astiavLog(int level, const char *fmt)
 }
 */
 import "C"
-import "unsafe"
+import (
+	"fmt"
+	"unsafe"
+)
 
 type LogLevel int
 
@@ -99,6 +102,12 @@ func ResetLogCallback() {
 
 func Log(l LogLevel, msg string) {
 	msgc := C.CString(msg)
+	defer C.free(unsafe.Pointer(msgc))
+	C.astiavLog(C.int(l), msgc)
+}
+
+func Logf(l LogLevel, msg string, args ...interface{}) {
+	msgc := C.CString(fmt.Sprintf(msg, args...))
 	defer C.free(unsafe.Pointer(msgc))
 	C.astiavLog(C.int(l), msgc)
 }

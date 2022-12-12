@@ -212,6 +212,10 @@ func (f PixelFormat) String() string {
 	return f.Name()
 }
 
+func (f PixelFormat) Int() int {
+	return int(C.int(f))
+}
+
 func FindPixelFormatByName(name string) PixelFormat {
 	cn := C.CString(name)
 	defer C.free(unsafe.Pointer(cn))

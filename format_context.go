@@ -55,7 +55,7 @@ func AllocOutputFormatContext(o *OutputFormat, formatName, filename string) (*Fo
 		finc = C.CString(filename)
 		defer C.free(unsafe.Pointer(finc))
 	}
-	fc := AllocFormatContext()
+	fc := newFormatContext()
 	var oc *C.struct_AVOutputFormat
 	if o != nil {
 		oc = o.c
@@ -136,7 +136,7 @@ func (fc *FormatContext) OutputFormat() *OutputFormat {
 }
 
 func (fc *FormatContext) Pb() *IOContext {
-	if fc.c.pb == nil {
+	if fc.c == nil {
 		return nil
 	}
 	return newIOContextFromC(fc.c.pb)
@@ -167,11 +167,8 @@ func (fc *FormatContext) SetStrictStdCompliance(strictStdCompliance StrictStdCom
 }
 
 func (fc *FormatContext) OpenInput(url string, fmt *InputFormat, d *Dictionary) error {
-	var urlc *C.char
-	if len(url) > 0 {
-		urlc = C.CString(url)
-		defer C.free(unsafe.Pointer(urlc))
-	}
+	urlc := C.CString(url)
+	defer C.free(unsafe.Pointer(urlc))
 	var dc **C.struct_AVDictionary
 	if d != nil {
 		dc = &d.c
