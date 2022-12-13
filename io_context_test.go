@@ -4,6 +4,7 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"path"
 	"path/filepath"
 	"testing"
 
@@ -16,8 +17,7 @@ func TestIOContext_Open_ReadWriteSeek(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "iocontext.txt")
 
 	// Write Test
-	err := c.Open(path, astiav.NewIOContextFlags(
-		astiav.IOContextFlagReadWrite))
+	err := c.Open(path, astiav.NewIOContextFlags(astiav.IOContextFlagWrite))
 	require.NoError(t, err)
 
 	err = c.Write(nil)
@@ -36,12 +36,6 @@ func TestIOContext_Open_ReadWriteSeek(t *testing.T) {
 	c = astiav.NewIOContext()
 	err = c.Open(path, astiav.NewIOContextFlags(astiav.IOContextFlagRead))
 	require.NoError(t, err)
-
-	// Seek Test
-	// require.True(t, c.Seekable())
-	// i, err := c.Seek(4, io.SeekStart)
-	// require.Equal(t, int64(4), i)
-	// require.NoError(t, err)
 
 	d := make([]byte, 32768)
 	j, err := c.Read(d)
@@ -94,111 +88,88 @@ func TestIOContext_OpenWith_Write(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// func TestIOContext_ReadWriteCopy_(t *testing.T) {
-// 	cx := astiav.NewIOContext().Wrapper()
-// 	path := filepath.Join(t.TempDir(), "iocontext.txt")
-
-// 	// Write Test
-// 	err := cx.Open(path, astiav.NewIOContextFlags(
-// 		astiav.IOContextFlagReadWrite))
-// 	require.NoError(t, err)
-// 	fmt.Println("got x", path, cx.Size())
-
-// 	n, err := cx.Write(nil)
-// 	require.NoError(t, err)
-// 	require.Equal(t, int64(0), n)
-// 	fmt.Println("got x", cx.Size())
-
-// 	l, err := cx.Write([]byte("testtest"))
-// 	require.Equal(t, int64(8), l)
-// 	require.NoError(t, err)
-// 	fmt.Println("got x", cx.Size())
-
-// 	err = cx.Close()
-// 	require.NoError(t, err)
-
-// 	// Read Test
-// 	c := astiav.NewIOContext().Wrapper()
-
-// 	// using IOContextFlagReadWrite doesn't seem to work here.
-// 	err = c.Open(path, astiav.NewIOContextFlags(astiav.IOContextFlagRead))
-// 	require.NoError(t, err)
-
-// 	// Seek Test
-// 	require.True(t, c.Seekable())
-// 	i, err := c.Seek(0, io.SeekStart)
-// 	require.Equal(t, int64(0), i)
-// 	require.NoError(t, err)
-// 	fmt.Println("got x", c.Size())
-
-// 	buf := bytes.NewBuffer(make([]byte, 8))
-// 	j, err := c.Read(buf.Bytes())
-// 	require.NoError(t, err)
-// 	require.Equal(t, 8, j)
-// 	require.Equal(t, "testtest", buf.String())
-// 	fmt.Println("got x", c.Size())
-
-// 	// Cleanup
-// 	err = c.Close()
-// 	require.NoError(t, err)
-// 	fmt.Println("got y", c.Size())
-
-// 	b, err := os.ReadFile(path)
-// 	require.NoError(t, err)
-// 	require.Equal(t, "testtest", string(b))
-
-// 	err = os.Remove(path)
-// 	require.NoError(t, err)
-// }
-
-func TestIOContext_Reader(t *testing.T) {
-	// buf := bytes.NewBuffer(make([]byte, 1024))
-	// c := astiav.AllocIOContext(
-	// 	buf.Bytes(), true, func(i1 *interface{}, b []byte, i2 int) int {
-	// 		fmt.Println("read", i1, b, i2)
-	// 		return 0
-	// 	}, func(i1 *interface{}, b []byte, i2 int) int {
-	// 		fmt.Println("write", i1, b, i2)
-	// 		return 0
-	// 	}, func(i1 *interface{}, i2 int64, i3 int) int64 {
-	// 		fmt.Println("seek", i1, i2, i3)
-	// 		return 0
-	// 	},
-	// )
+func TestIOContext_BufferReader(t *testing.T) {
 	buffer := randomBytes(1024 * 1024)
-
 	c := astiav.AllocIOContextBufferReader(buffer)
 	defer c.Free()
-
-	// err := c.Write([]byte("testtest"))
-	// require.NoError(t, err)
-
-	// fmt.Println("write done", c.Size())
-	// c.Flush()
-	// fmt.Println("flush done", c.Size())
-
-	// require.True(t, c.Seekable())
-	// i, err := c.Seek(0, io.SeekStart)
-	// require.Equal(t, int64(0), i)
 
 	buf := make([]byte, 256)
 	n, err := c.Read(buf)
 	require.NoError(t, err)
 	require.Equal(t, 256, n)
-	// require.Equal(t, "testtest", string(buf))
-	// j, err := c.Seek(0, io.SeekStart)
-	// require.NoError(t, err)
-	// require.Equal(t, int64(0), j)
 
-	// data := make([]byte, 8)
-	// n, err := c.Read(data)
-
-	// require.NoError(t, err)
-	// require.Equal(t, 8, n)
-
+	// Error expected because write is not supported
+	err = c.Write(buf)
+	require.Error(t, err)
+	require.True(t, astiav.ErrEio.Is(err))
 }
 
-func TestIOContext_Writer(t *testing.T) {
+func TestIOContext_ReadSeeker(t *testing.T) {
+	f := createTestFile(t, string(randomBytes(256)))
+	c := astiav.AllocIOContextReadSeeker(f)
+	defer c.Free()
+
+	buf1 := make([]byte, 256)
+	n, err := c.Read(buf1)
+	require.NoError(t, err)
+	require.Equal(t, 256, n)
+
+	require.True(t, c.Seekable())
+	i, err := c.Seek(0, io.SeekStart)
+	require.Equal(t, int64(0), i)
+
+	buf2 := make([]byte, 256)
+	n, err = c.Read(buf2)
+	require.NoError(t, err)
+	require.Equal(t, 256, n)
+}
+
+func TestIOContext_BufferReadSeeker(t *testing.T) {
+	buffer := randomBytes(1024 * 1024)
+	c := astiav.AllocIOContextBufferReader(buffer)
+	defer c.Free()
+
+	buf1 := make([]byte, 256)
+	n, err := c.Read(buf1)
+	require.NoError(t, err)
+	require.Equal(t, 256, n)
+
+	require.True(t, c.Seekable())
+	i, err := c.Seek(0, io.SeekStart)
+	require.Equal(t, int64(0), i)
+
+	buf2 := make([]byte, 256)
+	n, err = c.Read(buf2)
+	require.NoError(t, err)
+	require.Equal(t, 256, n)
+}
+
+func TestIOContext_WriteSeeker(t *testing.T) {
+	randBytes := randomBytes(256)
+	f := createTestFile(t, string(randBytes))
+	c := astiav.AllocIOContextWriteSeeker(f)
+	defer c.Free()
+
+	err := c.Write(randBytes)
+	require.NoError(t, err)
+
+	require.True(t, c.Seekable())
+	i, err := c.Seek(0, io.SeekStart)
+	require.Equal(t, int64(0), i)
+
+	readBytes := make([]byte, 256)
+	n, err := f.Read(readBytes)
+	require.NoError(t, err)
+	require.Equal(t, 256, n)
+	require.Equal(t, readBytes, randBytes)
+
+	n, err = c.Read(make([]byte, 256))
+	require.Error(t, err)
+	require.True(t, astiav.ErrEio.Is(err))
+	require.Equal(t, int(astiav.ErrEio), n)
+}
+
+func TestIOContext_BufferWriteSeeker(t *testing.T) {
 	rbuffer := randomBytes(1024)
 	buffer := make([]byte, 1024)
 
@@ -214,77 +185,13 @@ func TestIOContext_Writer(t *testing.T) {
 	i, err := c.Seek(0, io.SeekStart)
 	require.Equal(t, int64(0), i)
 
+	// Error expected because read is not supported
 	n, err := c.Read(make([]byte, 256))
 	require.True(t, astiav.ErrEio.Is(err))
 	require.Equal(t, int(astiav.ErrEio), n)
 }
 
-func TestIOContext_Callbacks_(t *testing.T) {
-	readCount := 0
-	writeCount := 0
-	seekCount := 0
-
-	b16 := randomBytes(16)
-	b32 := randomBytes(32)
-	b64 := randomBytes(64)
-
-	c := astiav.AllocIOContextCallback(
-		func(buf []byte) int {
-			readCount += 1
-			if readCount == 1 {
-				copy(buf, b16)
-				return len(b16)
-			}
-			return int(astiav.ErrEof)
-		},
-		func(buf []byte) int {
-			writeCount += 1
-			if writeCount == 1 {
-				require.Equal(t, b16, buf)
-			} else if writeCount == 2 {
-				require.Equal(t, b32, buf)
-			} else if writeCount == 3 {
-				require.Equal(t, b64, buf)
-			}
-			return len(buf)
-		},
-		func(offset int64, whence int) int64 {
-			seekCount += 1
-			return offset
-		},
-	)
-	defer c.Free()
-
-	err := c.Write(b16)
-	require.NoError(t, err)
-	require.Equal(t, 1, writeCount)
-
-	err = c.Write(b32)
-	require.NoError(t, err)
-	require.Equal(t, 2, writeCount)
-
-	err = c.Write(b64)
-	require.NoError(t, err)
-	require.Equal(t, 3, writeCount)
-
-	require.True(t, c.Seekable())
-	i, err := c.Seek(0, io.SeekStart)
-	require.Equal(t, int64(0), i)
-
-	buf := make([]byte, 64)
-	n, err := c.Read(buf)
-	require.Equal(t, buf[:n], b16)
-	require.NoError(t, err)
-	require.Equal(t, 16, int(n))
-
-	buf = make([]byte, 64)
-	n, err = c.Read(buf)
-	require.ErrorIs(t, err,
-		(astiav.Error)(astiav.ErrEof))
-	require.Equal(t, int(astiav.ErrEof), int(n))
-}
-
-func TestIOContext_Callbacks(t *testing.T) {
+func TestIOContext_CallbacksWriteRead(t *testing.T) {
 	byteArr := make([]byte, 64)
 	size := 0
 	pos := 0
@@ -300,13 +207,9 @@ func TestIOContext_Callbacks(t *testing.T) {
 			for i := 0; i < min; i++ {
 				buf[i] = byteArr[pos+i]
 			}
-			// fmt.Println("READ BA:", pos, len(byteArr), byteArr)
-			// fmt.Println("READ B:", pos, len(buf), buf)
 			pos += min
 			return min
 		}, func(buf []byte) int {
-			// fmt.Println("WR CB:", len(buf), buf)
-			// fmt.Println("WR CB X:", pos, size, len(byteArr), byteArr)
 			bufSize := len(buf)
 
 			if pos >= len(byteArr) {
@@ -331,8 +234,6 @@ func TestIOContext_Callbacks(t *testing.T) {
 	err := c.Write(original)
 	require.NoError(t, err)
 
-	c.Flush()
-
 	require.True(t, c.Seekable())
 	i, err := c.Seek(0, io.SeekStart)
 	require.Equal(t, int64(0), i)
@@ -356,16 +257,33 @@ func randomBytes(size int) []byte {
 	return buf
 }
 
-func BenchmarkIOContext_OpenMisc(b *testing.B) {
+func BenchmarkIOContext_OpenAndParseAudio(b *testing.B) {
 	astiav.SetLogLevel(astiav.LogLevelError)
-	// b.Logf("file size: %d\n", len(file))
 
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		b.StartTimer()
 		openFromReader(b, "testdata/audio.mp3")
-		b.StopTimer()
+	}
+}
+
+func BenchmarkIOContext_OpenAndParseVideo(b *testing.B) {
+	astiav.SetLogLevel(astiav.LogLevelError)
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		openFromReader(b, "testdata/video.mp4")
+	}
+}
+
+func BenchmarkIOContext_OpenAndParseImage(b *testing.B) {
+	astiav.SetLogLevel(astiav.LogLevelError)
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		openFromReader(b, "testdata/image.jpeg")
 	}
 }
 
@@ -375,20 +293,19 @@ func openFromReader(b *testing.B, fileName string) {
 		b.Fatal(err)
 	}
 	defer file.Close()
+
+	b.StartTimer()
+	defer b.StopTimer()
 	fc := astiav.AllocFormatContext()
 	defer fc.Free()
-	ioCtx := astiav.AllocIOContextReadSeeker(
-		file, file)
+	ioCtx := astiav.AllocIOContextReadSeeker(file)
 	if ioCtx == nil {
 		b.Fatal("ioCtx is nil")
 	}
 	defer ioCtx.Free()
 	fc.SetPb(ioCtx)
-	// dict1 := astiav.NewDictionary()
-	// if dict1 == nil {
-	// 	b.Fatal("dict is nil")
-	// }
-	err = fc.OpenInput("testing", nil, nil)
+	dict1 := astiav.NewDictionary()
+	err = fc.OpenInput("testing", nil, dict1)
 	if err != nil {
 		b.Fatalf("error: %v %d\n", err, err)
 	}
@@ -402,54 +319,24 @@ func openFromReader(b *testing.B, fileName string) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	// if dict.Len() > 0 {
-	// 	buf := make([]byte, 0, 1024*1024)
-	// 	dict.Unpack(buf)
-	// 	b.Logf("Dictionay Data: %s\n", string(buf))
-	// }
-	// decCc := astiav.AllocCodecContext(fc.Streams()[0].Codecpar())
 	for _, is := range fc.Streams() {
-		// Only process audio or video
-		// b.Logf("found media type (%s) for stream%d", is.CodecParameters().MediaType().String(), is.Index())
 		if is.CodecParameters().MediaType() != astiav.MediaTypeAudio &&
 			is.CodecParameters().MediaType() != astiav.MediaTypeVideo {
 			continue
 		}
-		// Find decoder
-		// 		if dec := astiav.FindDecoder(is.CodecParameters().CodecID()); dec == nil {
-		// 			b.Fatal("main: codec is nil")
-		// 		} else {
-		// 			b.Logf("main: found decoder for %s: %s\n", is.CodecParameters().CodecID().Name(), s.decCodec.Name())
-		// 		}
-
-		// 		// Find encode
-		// 		if enc := astiav.FindEncoder(is.CodecParameters().CodecID()); enc == nil {
-		// 			b.Fatal(errors.New("main: codec is nil"))
-		// 		}
-
-		// 		// Find pixel format
-		// 		if is.CodecParameters().MediaType() == astiav.MediaTypeVideo {
-		// 			b.Logf("pixel format: %s\n", is.CodecParameters().PixelFormat().Name())
-		// 			b.Logf("color range id: %d\n", is.CodecParameters().ColorRange())
-		// 			b.Logf("color space id: %d\n", is.CodecParameters().ColorSpace())
-		// 			b.Logf("color primaries id: %d\n", is.CodecParameters().ColorPrimaries())
-		// 		}
-
-		// 		// Alloc decoder codec context
-		// 		if cc = astiav.AllocCodecContext(dec); cc == nil {
-		// 			b.Fatal("codec context is nil")
-		// 		}
-		// 		defer s.decCodecContext.Free()
-
-		// 		// Update codec context
-		// 		if err := is.CodecParameters().ToCodecContext(s.decCodecContext); err != nil {
-		// 			b.Fatal(fmt.Errorf("updating codec context failed: %w", err))
-		// 		}
-
-		// 		// Open codec context
-		// 		if err := s.decCodecContext.Open(s.decCodec, nil); err != nil {
-		// 			b.Fatal(fmt.Errorf("opening codec context failed: %w", err))
-		// 		}
-
 	}
+}
+
+func createTestFile(t *testing.T, data string) *os.File {
+	dir := path.Join(t.TempDir(), t.Name())
+	f, err := os.Create(dir)
+	require.NoError(t, err)
+	n, err := f.WriteString(data)
+	require.NoError(t, err)
+	require.Equal(t, len(data), n)
+	require.NoError(t, f.Close())
+
+	f, err = os.OpenFile(dir, os.O_RDWR, 0)
+	require.NoError(t, err)
+	return f
 }

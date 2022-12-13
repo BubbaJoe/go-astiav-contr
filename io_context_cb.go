@@ -17,10 +17,11 @@ type ioContextCbs struct {
 
 //export go_ioctx_proxy_read
 func go_ioctx_proxy_read(opaque unsafe.Pointer, buf *C.uint8_t, buf_size C.int) C.int {
+	if buf == nil || buf_size == 0 {
+		return C.int(ErrEio)
+	}
 	id := int(*(*C.int)(opaque))
 	if ctx, ok := fetchIOCallback(id); ok && ctx.readCb != nil {
-		// gobuf := make([]byte, int(buf_size))
-		// n := ctx.readCb(gobuf)
 		n := ctx.readCb((*[1 << 30]byte)(unsafe.Pointer(buf))[:int(buf_size)])
 		cn := C.int(n)
 		if n < 0 {
@@ -28,7 +29,6 @@ func go_ioctx_proxy_read(opaque unsafe.Pointer, buf *C.uint8_t, buf_size C.int) 
 		} else if n == 0 {
 			return C.int(ErrUnknown)
 		}
-		// copyGoBytes(unsafe.Pointer(buf), gobuf[:n])
 		return cn
 	}
 	return C.int(ErrEio)
@@ -36,10 +36,13 @@ func go_ioctx_proxy_read(opaque unsafe.Pointer, buf *C.uint8_t, buf_size C.int) 
 
 //export go_ioctx_proxy_write
 func go_ioctx_proxy_write(opaque unsafe.Pointer, buf *C.uint8_t, buf_size C.int) C.int {
+	if buf == nil || buf_size == 0 {
+		return C.int(ErrEio)
+	}
 	id := int(*(*C.int)(opaque))
-	// fmt.Println("SOURCE WRITE:", string(*buf), buf_size, payload.buf_size)
 	if ctx, ok := fetchIOCallback(id); ok && ctx.writeCb != nil {
-		return C.int(ctx.writeCb(C.GoBytes(unsafe.Pointer(buf), buf_size)))
+		return C.int(ctx.writeCb((*[1 << 30]byte)(unsafe.Pointer(buf))[:int(buf_size)]))
+		// return C.int(ctx.writeCb(C.GoBytes(unsafe.Pointer(buf), buf_size)))
 	}
 	return C.int(ErrEio)
 }

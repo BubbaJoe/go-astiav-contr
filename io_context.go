@@ -26,10 +26,10 @@ type IOContext struct {
 }
 
 const (
-	//
+	// Seek constants
 	IOContextSeekSize  = C.AVSEEK_SIZE
 	IOContextSeekForce = C.AVSEEK_FORCE
-	//
+	// internal seek flags
 	seekableNormalFlag = C.AVIO_SEEKABLE_NORMAL
 	seekableTimeFlag   = C.AVIO_SEEKABLE_TIME
 )
@@ -42,7 +42,7 @@ type IOContextReadFunc func(buf []byte) int
 type IOContextWriteFunc func(buf []byte) int
 type IOContextSeekFunc func(offset int64, whence int) int64
 
-// Creates IOContext with intermediate buffer
+// AllocIOContextCallback - create IOContext with custom callbacks
 func AllocIOContextCallback(
 	readCb IOContextReadFunc,
 	writeCb IOContextWriteFunc,
@@ -74,14 +74,22 @@ func AllocIOContextCallback(
 	}
 }
 
+// AllocIOContextReader - create IOContext for reading
 func AllocIOContextReader(
 	rdr io.Reader,
 ) *IOContext {
-	return AllocIOContextReadSeeker(rdr, nil)
+	return AllocIOContextReaderAndSeeker(rdr, nil)
 }
 
-// Creates IOContext for reading and/or seeking
+// AllocIOContextReadSeeker - create IOContext for reading
 func AllocIOContextReadSeeker(
+	rskr io.ReadSeeker,
+) *IOContext {
+	return AllocIOContextReaderAndSeeker(rskr, rskr)
+}
+
+// AllocIOContextReaderAndSeeker - create IOContext for reading and seeking
+func AllocIOContextReaderAndSeeker(
 	rdr io.Reader, skr io.Seeker,
 ) *IOContext {
 	id := addIOCallback(
@@ -130,15 +138,18 @@ func AllocIOContextReadSeeker(
 	}
 }
 
-func AllocIOContextWriter(
-	wtr io.Writer,
-) *IOContext {
-	return AllocIOContextWriteSeeker(wtr, nil)
+// AllocIOContextWriter - create IOContext for writing
+func AllocIOContextWriter(wtr io.Writer) *IOContext {
+	return AllocIOContextWriterAndSeeker(wtr, nil)
 }
 
-func AllocIOContextWriteSeeker(
-	wtr io.Writer, skr io.Seeker,
-) *IOContext {
+// AllocIOContextWriteSeeker - create IOContext for writing
+func AllocIOContextWriteSeeker(wrskr io.WriteSeeker) *IOContext {
+	return AllocIOContextWriterAndSeeker(wrskr, wrskr)
+}
+
+// AllocIOContextWriterAndSeeker - create IOContext for writing and seeking
+func AllocIOContextWriterAndSeeker(wtr io.Writer, skr io.Seeker) *IOContext {
 	wf := C.int(0)
 	if wtr != nil {
 		wf = C.int(1)
@@ -185,6 +196,7 @@ func AllocIOContextWriteSeeker(
 	}
 }
 
+// AllocIOContextBufferReader - create IOContext for reading from provided buffer
 func AllocIOContextBufferReader(buf []byte) *IOContext {
 	var pos = 0
 
@@ -232,6 +244,7 @@ func AllocIOContextBufferReader(buf []byte) *IOContext {
 	}
 }
 
+// AllocIOContextBufferWriter - create IOContext for writing to provided buffer
 func AllocIOContextBufferWriter(buf []byte) *IOContext {
 	var pos = 0
 
@@ -346,7 +359,7 @@ func (ic *IOContext) Write(b []byte) error {
 		return nil
 	}
 	C.avio_write(ic.c, (*C.uchar)(&b[0]), C.int(len(b)))
-	return nil
+	return ic.Error()
 }
 
 func (ic *IOContext) Flush() {
