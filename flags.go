@@ -280,3 +280,24 @@ func (fs StreamEventFlags) Del(f StreamEventFlag) StreamEventFlags {
 }
 
 func (fs StreamEventFlags) Has(f StreamEventFlag) bool { return flags(fs).has(int(f)) }
+
+
+type FrameFlags flags
+
+func NewFrameFlags(fs ...FrameFlag) FrameFlags {
+	o := FrameFlags(0)
+	for _, f := range fs {
+		o = o.Add(f)
+	}
+	return o
+}
+
+func (fs FrameFlags) Add(f FrameFlag) FrameFlags {
+	return FrameFlags(flags(fs).add(int(f)))
+}
+
+func (fs FrameFlags) Del(f FrameFlag) FrameFlags {
+	return FrameFlags(flags(fs).del(int(f)))
+}
+
+func (fs FrameFlags) Has(f FrameFlag) bool { return flags(fs).has(int(f)) }

@@ -212,8 +212,80 @@ func (f PixelFormat) String() string {
 	return f.Name()
 }
 
+func (f PixelFormat) Int() int {
+	return int(C.int(f))
+}
+
 func FindPixelFormatByName(name string) PixelFormat {
 	cn := C.CString(name)
 	defer C.free(unsafe.Pointer(cn))
 	return PixelFormat(C.av_get_pix_fmt(cn))
+}
+
+func GetPixelFormatDescription(f PixelFormat) *PixelFormatDescriptor {
+	desc := C.av_pix_fmt_desc_get((C.enum_AVPixelFormat)(f))
+	if desc == nil {
+		return nil
+	}
+	return &PixelFormatDescriptor{desc}
+}
+
+type ComponentDescriptor struct {
+	c *C.struct_AVComponentDescriptor
+}
+
+func (c ComponentDescriptor) Plane() int {
+	return int(c.c.plane)
+}
+
+func (c ComponentDescriptor) Offset() int {
+	return int(c.c.offset)
+}
+
+func (c ComponentDescriptor) Step() int {
+	return int(c.c.step)
+}
+
+func (c ComponentDescriptor) Shift() int {
+	return int(c.c.shift)
+}
+
+func (c ComponentDescriptor) Depth() int {
+	return int(c.c.depth)
+}
+
+type PixelFormatDescriptor struct {
+	c *C.struct_AVPixFmtDescriptor
+}
+
+func (d PixelFormatDescriptor) Name() string {
+	return C.GoString(d.c.name)
+}
+
+func (d PixelFormatDescriptor) NbComponents() int {
+	return int(d.c.nb_components)
+}
+
+func (d PixelFormatDescriptor) Log2ChromaW() int {
+	return int(d.c.log2_chroma_w)
+}
+
+func (d PixelFormatDescriptor) Log2ChromaH() int {
+	return int(d.c.log2_chroma_h)
+}
+
+func (d PixelFormatDescriptor) Flags() int {
+	return int(d.c.flags)
+}
+
+func (d PixelFormatDescriptor) Comp() []*ComponentDescriptor {
+	comp := make([]*ComponentDescriptor, len(d.c.comp))
+	for j := 0; j < 4; j++ {
+		comp[j] = &ComponentDescriptor{&d.c.comp[j]}
+	}
+	return comp
+}
+
+func (d PixelFormatDescriptor) Alias() string {
+	return C.GoString(d.c.alias)
 }

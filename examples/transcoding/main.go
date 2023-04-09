@@ -41,9 +41,9 @@ type stream struct {
 
 func main() {
 	// Handle ffmpeg logs
-	astiav.SetLogLevel(astiav.LogLevelDebug)
+	astiav.SetLogLevel(astiav.LogLevelInfo)
 	astiav.SetLogCallback(func(l astiav.LogLevel, fmt, msg, parent string) {
-		log.Printf("ffmpeg log: %s (level: %d)\n", strings.TrimSpace(msg), l)
+		log.Printf("ffmpeg log: %s (level: %s)\n", strings.TrimSpace(msg), l)
 	})
 
 	// Parse flags
@@ -238,7 +238,7 @@ func openOutputFile() (err error) {
 		}
 
 		// Get codec id
-		codecID := astiav.CodecIDMpeg4
+		codecID := astiav.CodecIDH264
 		if s.decCodecContext.MediaType() == astiav.MediaTypeAudio {
 			codecID = astiav.CodecIDAac
 		}
@@ -278,6 +278,8 @@ func openOutputFile() (err error) {
 			} else {
 				s.encCodecContext.SetPixelFormat(s.decCodecContext.PixelFormat())
 			}
+			// fmt.Println("Previous pixel format: ", s.encCodecContext.PixelFormat())
+			// fmt.Println("Previous pixel format: ", s.decCodecContext.PixelFormat())
 			s.encCodecContext.SetSampleAspectRatio(s.decCodecContext.SampleAspectRatio())
 			s.encCodecContext.SetTimeBase(s.decCodecContext.TimeBase())
 			s.encCodecContext.SetWidth(s.decCodecContext.Width())
@@ -460,6 +462,9 @@ func filterEncodeWriteFrame(f *astiav.Frame, s *stream) (err error) {
 
 		// Reset picture type
 		s.filterFrame.SetPictureType(astiav.PictureTypeNone)
+		// Print previous pixel format
+		// fmt.Println("Previous pixel format: ", s.filterFrame.PixelFormat())
+		s.filterFrame.SetPixelFormat(astiav.PixelFormatYuv420P)
 
 		// Encode and write frame
 		if err = encodeWriteFrame(s.filterFrame, s); err != nil {

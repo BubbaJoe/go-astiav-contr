@@ -1,11 +1,16 @@
 package astiav
 
-//#cgo pkg-config: libavutil
-//#include <libavutil/channel_layout.h>
-//#include <libavutil/frame.h>
-//#include <libavutil/imgutils.h>
-//#include <libavutil/samplefmt.h>
+/*
+#cgo pkg-config: libavutil
+#include <libavutil/channel_layout.h>
+#include <libavutil/frame.h>
+#include <libavutil/imgutils.h>
+#include <libavutil/samplefmt.h>
+*/
 import "C"
+import (
+	"unsafe"
+)
 
 const NumDataPointers = uint(C.AV_NUM_DATA_POINTERS)
 
@@ -29,8 +34,16 @@ func (f *Frame) AllocBuffer(align int) error {
 	return newError(C.av_frame_get_buffer(f.c, C.int(align)))
 }
 
-func (f *Frame) AllocImage(align int) error {
-	return newError(C.av_image_alloc(&f.c.data[0], &f.c.linesize[0], f.c.width, f.c.height, (C.enum_AVPixelFormat)(f.c.format), C.int(align)))
+func (f *Frame) AllocImage(align int) (int, error) {
+	n := C.av_image_alloc(
+		&f.c.data[0], &f.c.linesize[0],
+		f.c.width, f.c.height,
+		(C.enum_AVPixelFormat)(f.c.format),
+		C.int(align))
+	if n < 0 {
+		return 0, newError(n)
+	}
+	return int(n), nil
 }
 
 func (f *Frame) AllocSamples(align int) error {
@@ -46,19 +59,103 @@ func (f *Frame) SetChannelLayout(l ChannelLayout) {
 }
 
 func (f *Frame) Data() [NumDataPointers][]byte {
-	b := [NumDataPointers][]byte{}
+	b := [8][]byte{}
+	for i, size := range f.getPlainSizes() {
+		if size == 0 {
+			b[i] = []byte{}
+			continue
+		}
+		if f.c.data[i] == nil {
+			continue
+		}
+		b[i] = C.GoBytes(unsafe.Pointer(f.c.data[i]), C.int(size))
+	}
 	for i := 0; i < int(NumDataPointers); i++ {
-		b[i] = bytesFromC(func(size *C.int) *C.uint8_t {
-			*size = f.c.linesize[i]
-			if f.c.height > 0 {
-				*size = *size * f.c.height
-			} else if f.c.channels > 0 {
-				*size = *size * f.c.channels
-			}
-			return f.c.data[i]
-		})
+		size := f.c.linesize[i]
+		if f.c.height > 0 {
+			size = size * f.c.height
+		} else if f.c.channels > 0 {
+			size = size * f.c.channels
+		}
+		b[i] = C.GoBytes(unsafe.Pointer(f.c.data[0]), size)
 	}
 	return b
+}
+
+func (f *Frame) SetData(d [NumDataPointers][]byte) {
+	for i := 0; i < f.NbSamples(); i++ {
+		f.c.data[i] = (*C.uint8_t)(C.CBytes(d[i]))
+	}
+}
+
+func (f *Frame) DataFull() []byte {
+	totalSize := 0
+	sizes := f.getPlainSizes()
+	for _, s := range sizes {
+		totalSize += s
+	}
+	fullData := make([]byte, totalSize)
+	currentStart := 0
+	for _, byteArr := range f.Data() {
+		if len(byteArr) == 0 {
+			continue
+		}
+		currentStart += copy(fullData[currentStart:], byteArr)
+	}
+	return fullData
+}
+
+func (f *Frame) SetDataFull(b []byte) {
+	currentPos := 0
+	for i, size := range f.getPlainSizes() {
+		sl := C.size_t(size)
+		cb := C.av_malloc(sl)
+		C.memcpy(cb, unsafe.Pointer(&b[currentPos]), sl)
+		f.c.data[i] = (*C.uint8_t)(unsafe.Pointer(cb))
+		currentPos += size
+	}
+
+}
+
+func (f *Frame) getPlainSize(i int) int {
+	if i >= len(f.Linesize()) {
+		return 0
+	}
+	size := f.Linesize()[i]
+	if f.c.height > 0 {
+		size *= int(f.c.height)
+	} else if f.c.channels > 0 {
+		size *= int(f.c.channels)
+	}
+	return size
+}
+
+func (f *Frame) getPlainSizes() []int {
+	ls := f.Linesize()
+	sizes := make([]int, len(ls))
+	for i := 0; i < len(sizes); i++ {
+		sizes[i] = f.getPlainSize(i)
+	}
+
+	return sizes
+}
+
+func (f *Frame) Linesize() [NumDataPointers]int {
+	lsize := [NumDataPointers]int{}
+	for i := 0; i < int(4); i++ {
+		lsize[i] = int(f.c.linesize[i])
+	}
+	return lsize
+}
+
+func (f *Frame) Channels() int {
+	return int(f.c.channels)
+}
+
+func (f *Frame) SetLinesize(l [NumDataPointers]int) {
+	for i := 0; i < int(NumDataPointers); i++ {
+		f.c.linesize[i] = C.int(l[i])
+	}
 }
 
 func (f *Frame) Height() int {
@@ -81,14 +178,6 @@ func (f *Frame) SetKeyFrame(k bool) {
 	f.c.key_frame = C.int(i)
 }
 
-func (f *Frame) Linesize() [NumDataPointers]int {
-	o := [NumDataPointers]int{}
-	for i := 0; i < int(NumDataPointers); i++ {
-		o[i] = int(f.c.linesize[i])
-	}
-	return o
-}
-
 func (f *Frame) NbSamples() int {
 	return int(f.c.nb_samples)
 }
@@ -105,6 +194,14 @@ func (f *Frame) SetPictureType(t PictureType) {
 	f.c.pict_type = C.enum_AVPictureType(t)
 }
 
+func (f *Frame) ColorRange() ColorRange {
+	return ColorRange(f.c.color_range)
+}
+
+func (f *Frame) SetColorRange(cr ColorRange) {
+	f.c.color_range = uint32(cr)
+}
+
 func (f *Frame) PixelFormat() PixelFormat {
 	return PixelFormat(f.c.format)
 }
@@ -113,16 +210,16 @@ func (f *Frame) SetPixelFormat(pf PixelFormat) {
 	f.c.format = C.int(pf)
 }
 
-func (f *Frame) PktPts() int64 {
-	return int64(f.c.pkt_pts)
-}
-
 func (f *Frame) PktDts() int64 {
 	return int64(f.c.pkt_dts)
 }
 
 func (f *Frame) Pts() int64 {
 	return int64(f.c.pts)
+}
+
+func (f *Frame) SetPktDts(i int64) {
+	f.c.pkt_dts = C.int64_t(i)
 }
 
 func (f *Frame) SetPts(i int64) {
@@ -146,11 +243,13 @@ func (f *Frame) SetSampleRate(r int) {
 }
 
 func (f *Frame) NewSideData(t FrameSideDataType, size int) *FrameSideData {
-	return newFrameSideDataFromC(C.av_frame_new_side_data(f.c, (C.enum_AVFrameSideDataType)(t), C.int(size)))
+	return newFrameSideDataFromC(C.av_frame_new_side_data(f.c,
+		(C.enum_AVFrameSideDataType)(t), C.int(size)))
 }
 
 func (f *Frame) SideData(t FrameSideDataType) *FrameSideData {
-	return newFrameSideDataFromC(C.av_frame_get_side_data(f.c, (C.enum_AVFrameSideDataType)(t)))
+	return newFrameSideDataFromC(C.av_frame_get_side_data(f.c,
+		(C.enum_AVFrameSideDataType)(t)))
 }
 
 func (f *Frame) Width() int {

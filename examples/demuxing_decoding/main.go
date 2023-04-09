@@ -22,9 +22,9 @@ type stream struct {
 
 func main() {
 	// Handle ffmpeg logs
-	astiav.SetLogLevel(astiav.LogLevelDebug)
+	astiav.SetLogLevel(astiav.LogLevelInfo)
 	astiav.SetLogCallback(func(l astiav.LogLevel, fmt, msg, parent string) {
-		log.Printf("ffmpeg log: %s (level: %d)\n", strings.TrimSpace(msg), l)
+		log.Printf("ffmpeg log: %s (level: %s)\n", strings.TrimSpace(msg), l)
 	})
 
 	// Parse flags
@@ -58,14 +58,22 @@ func main() {
 	defer inputFormatContext.CloseInput()
 
 	// Find stream info
-	if err := inputFormatContext.FindStreamInfo(nil); err != nil {
+	dict := &astiav.Dictionary{}
+	dict.Set("testing", "111", astiav.NewDictionaryFlags(
+		astiav.DictionaryFlagAppend)) // test value
+	if err := inputFormatContext.FindStreamInfo(dict); err != nil {
 		log.Fatal(fmt.Errorf("main: finding stream info failed: %w", err))
+	} else if dict.Len() > 0 {
+		buf := make([]byte, 1024)
+		dict.Unpack(buf)
+		log.Printf("Dictionay Data: %s\n", string(buf))
 	}
 
 	// Loop through streams
 	streams := make(map[int]*stream) // Indexed by input stream index
 	for _, is := range inputFormatContext.Streams() {
 		// Only process audio or video
+		log.Printf("found media type (%s) for stream%d", is.CodecParameters().MediaType().String(), is.Index())
 		if is.CodecParameters().MediaType() != astiav.MediaTypeAudio &&
 			is.CodecParameters().MediaType() != astiav.MediaTypeVideo {
 			continue
@@ -77,6 +85,8 @@ func main() {
 		// Find decoder
 		if s.decCodec = astiav.FindDecoder(is.CodecParameters().CodecID()); s.decCodec == nil {
 			log.Fatal(errors.New("main: codec is nil"))
+		} else {
+			log.Printf("main: found decoder for %s: %s\n", is.CodecParameters().CodecID().Name(), s.decCodec.Name())
 		}
 
 		// Alloc codec context
@@ -127,11 +137,11 @@ func main() {
 				if errors.Is(err, astiav.ErrEof) || errors.Is(err, astiav.ErrEagain) {
 					break
 				}
-				log.Fatal(fmt.Errorf("main: receiving frame failed: %w", err))
+				log.Fatal(fmt.Errorf("main: receiving fram failed: %w", err))
 			}
 
 			// Do something with decoded frame
-			log.Printf("new frame: stream %d - pts: %d", pkt.StreamIndex(), f.Pts())
+			// log.Printf("new frame: stream %d - pts: %d", pkt.StreamIndex(), f.Pts())
 		}
 	}
 
